@@ -1,0 +1,18 @@
+# Build output
+build/
+out/
+bin/
+# Gradle
+.gradle/
+# Dev run directory: game dir, mods, dumps, user data
+run/
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+# OS
+.DS_Store
