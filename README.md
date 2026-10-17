@@ -3,8 +3,8 @@
 The mod toolchain of this workspace, as one Gradle plugin. It is published to the **Gradle Plugin
 Portal** (`./gradlew publishPlugins`), which is how a mod gets it with the one line below and without
 anything being published locally first; `./gradlew build publishToMavenLocal` still puts it into
-`mavenLocal` for a developer of this workspace who wants the local copy (and for the versions the
-portal does not serve yet — 1.0.1 is one, see
+`mavenLocal` for a developer of this workspace who wants the local copy (and for a version the portal
+does not serve yet - a development version built here, see
 [Publishing this plugin](#publishing-this-plugin)).
 
 | | |
@@ -38,12 +38,11 @@ dependencies {
 ```
 
 The version is required. With it Gradle resolves the plugin and its marker from the repositories of
-the build's `pluginManagement` block, and the mods of this workspace list `mavenLocal()` there first
-(and the Gradle Plugin Portal after it), because the version this workspace is on is published to
-`mavenLocal` by `./gradlew publishToMavenLocal` in this project: 1.0.1 is the
-runClient-from-the-class-path release and the portal does not serve it yet. A version the portal also
-serves resolves from the local copy while that line is there, which is what a developer of the
-toolchain wants; the line and this explanation go away with the next `./gradlew publishPlugins` (see
+the build's `pluginManagement` block, and the mods of this workspace list `gradlePluginPortal()` there
+first: the portal serves the version they state, so nothing has to be published locally before a mod
+can be built. `mavenLocal()` stays after the portal in those settings as a fallback for a version the
+portal does not serve yet (a development version built here with `./gradlew publishToMavenLocal`); a
+version the portal serves, 1.0.1 among them, resolves from the portal (see
 [Publishing this plugin](#publishing-this-plugin)).
 
 ## The game distribution (`pvz`)
@@ -339,20 +338,21 @@ from the Gradle user properties (`gradle.publish.key` / `gradle.publish.secret`)
 
 A plugin id the portal has not seen before is queued for review by Gradle engineers; until that review
 accepts it, `publishPlugins` reports the submission as pending acceptance and the marker is not served
-by `plugins.gradle.org/m2` yet, so nobody can resolve the plugin from the portal in the meantime. (The
-version that is published is the one a mod states - the artifact is published under this project's
-`version`, 1.0.1.)
+by `plugins.gradle.org/m2` yet, so nobody can resolve the plugin from the portal in the meantime. That
+is what 1.0.0 went through (the id is accepted since 2026-10-15); a version published after it - 1.0.1
+is one - is served as soon as `publishPlugins` reports success. (The version that is published is the
+one a mod states - the artifact is published under this project's `version`, 1.0.1.)
 
 **State of the publications:** 1.0.0 is on the portal
 (`cn.enaium.fabricpvz.loom:cn.enaium.fabricpvz.loom.gradle.plugin`, reviewed and served since
-2026-10-15); 1.0.1 - the runClient-that-loads-the-mod-from-the-class-path release - is published to
-`mavenLocal` only, so it resolves from there, and `./gradlew publishPlugins` in this project is the
-step that puts it on the portal as well. That is why every mod of this workspace lists `mavenLocal()`
-before `gradlePluginPortal()` in its `settings.gradle.kts` and states `version "1.0.1"`: a version the
-portal does not serve yet comes from the local copy, and the local copy is also what a developer of
-the toolchain wants to be picked up for a version the portal does serve. The `mavenLocal()` line can
-go once the portal serves 1.0.1; until then `./gradlew build publishToMavenLocal` here is a
-prerequisite of any mod build of this workspace (nothing else changes in the mods' builds).
+2026-10-15) and 1.0.1 - the runClient-that-loads-the-mod-from-the-class-path release - was published
+with `./gradlew publishPlugins` and is served as well: its
+`.../cn.enaium.fabricpvz.loom.gradle.plugin/maven-metadata.xml` lists both versions with
+`latest`/`release` = 1.0.1. `https://plugins.gradle.org/m2/` is therefore the one source a mod of this
+workspace needs, and publishing this plugin to `mavenLocal` is not a prerequisite of a mod build any
+more. The mods state `version "1.0.1"` and list `gradlePluginPortal()` first in their
+`settings.gradle.kts`, keeping `mavenLocal()` after it as a fallback for a version the portal does not
+serve yet (a development version built here).
 
 ## License
 
