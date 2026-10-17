@@ -3,13 +3,15 @@
 The mod toolchain of this workspace, as one Gradle plugin. It is published to the **Gradle Plugin
 Portal** (`./gradlew publishPlugins`), which is how a mod gets it with the one line below and without
 anything being published locally first; `./gradlew build publishToMavenLocal` still puts it into
-`mavenLocal` for a developer of this workspace who wants the local copy.
+`mavenLocal` for a developer of this workspace who wants the local copy (and for the versions the
+portal does not serve yet — 1.0.1 is one, see
+[Publishing this plugin](#publishing-this-plugin)).
 
 | | |
 |---|---|
 | plugin id | `cn.enaium.fabricpvz.loom` |
-| artifact | `cn.enaium.fabricpvz:loom:1.0.0` |
-| marker | `cn.enaium.fabricpvz.loom:cn.enaium.fabricpvz.loom.gradle.plugin:1.0.0` |
+| artifact | `cn.enaium.fabricpvz:loom:1.0.1` |
+| marker | `cn.enaium.fabricpvz.loom:cn.enaium.fabricpvz.loom.gradle.plugin:1.0.1` |
 | portal | https://plugins.gradle.org/plugin/cn.enaium.fabricpvz.loom |
 
 The plugin is written in Kotlin (`src/main/kotlin/cn/enaium/fabricpvz/loom/`): the same classes under
@@ -22,7 +24,7 @@ mod's class path is unaffected by that.
 ## Usage
 
 ```kotlin
-plugins { id("cn.enaium.fabricpvz.loom") version "1.0.0" }
+plugins { id("cn.enaium.fabricpvz.loom") version "1.0.1" }
 
 group = "cn.enaium.fabricpvz"
 version = "1.0.0"
@@ -35,12 +37,14 @@ dependencies {
 }
 ```
 
-The version is required, and with it Gradle resolves the plugin and its marker from the Gradle Plugin
-Portal - a default plugin repository, so a mod's `settings.gradle.kts` needs no repository
-declaration for the plugin at all. (The mods of this workspace keep their `pluginManagement` block
-anyway: it is where the repositories every other artifact comes from are declared as well, and until
-the portal's review of the first publication has accepted 1.0.0 it also carries the local fallback -
-see [Publishing this plugin](#publishing-this-plugin).)
+The version is required. With it Gradle resolves the plugin and its marker from the repositories of
+the build's `pluginManagement` block, and the mods of this workspace list `mavenLocal()` there first
+(and the Gradle Plugin Portal after it), because the version this workspace is on is published to
+`mavenLocal` by `./gradlew publishToMavenLocal` in this project: 1.0.1 is the
+runClient-from-the-class-path release and the portal does not serve it yet. A version the portal also
+serves resolves from the local copy while that line is there, which is what a developer of the
+toolchain wants; the line and this explanation go away with the next `./gradlew publishPlugins` (see
+[Publishing this plugin](#publishing-this-plugin)).
 
 ## The game distribution (`pvz`)
 
@@ -136,9 +140,9 @@ a repository rather than from the plugin or from the game's release.)
 | `testCompileOnly` | the API too: a test source set does not inherit `compileOnly`, and a mod's end-to-end test compiles against the same API its sources do |
 | `testImplementation` | the distribution's jars, the Kotlin stdlib and the API jar *without* its POM dependencies |
 | `testRuntimeOnly` | `net.fabricmc:fabric-language-kotlin` (the language module a Kotlin mod runs on, without its POM dependencies) and the JUnit platform launcher |
-| `pvzRunClasspath` (not published) | the distribution's jars, `fabric-language-kotlin` and the API jar (without its POM dependencies): what `runClient` launches |
+| `pvzRunClasspath` (not published) | the distribution's jars, `fabric-language-kotlin` and the API jar (without its POM dependencies): what `runClient` launches *besides this mod itself* |
 | `include` | the mods this mod carries inside itself (see [Jar-in-jar](#jar-in-jar-include)) |
-| tasks | `pvzDist` (obtains the game distribution: downloads the release asset of the version or takes the local archive / unpacked distribution, and unpacks it into `build/pvz/dist/`, whose `lib/` is the class path), `runClient` (boots `net.fabricmc.loader.impl.launch.knot.KnotClient` with the built jar in `run/mods/`, development mode, `-Dpvz.gameDir=run`), `pvzModsJar` (the jar → `run/mods/`), plus the Kotlin compile tasks of the Kotlin Gradle plugin |
+| tasks | `pvzDist` (obtains the game distribution: downloads the release asset of the version or takes the local archive / unpacked distribution, and unpacks it into `build/pvz/dist/`, whose `lib/` is the class path), `runClient` (boots `net.fabricmc.loader.impl.launch.knot.KnotClient` with the distribution's jars *and this mod's own output* on the class path, development mode, `-Dpvz.gameDir=run` — see [The development run](#the-development-run)), plus the Kotlin compile tasks of the Kotlin Gradle plugin |
 | conventions | Java 25 toolchain and `--release 25`, **Kotlin** (`org.jetbrains.kotlin.jvm`, `jvmTarget` 25, applied to every mod), UTF-8, jars with no bundled dependencies (a dependency is never shaded; a nested mod is `include`, and it stays a mod jar), `useJUnitPlatform()`, the test fork's `pvz.test.modJar` / `pvz.test.forkClasspath` system properties, headless SDL + first thread on macOS, the publication of the mod jar (`mavenLocal` coordinates, MIT) |
 
 Versions of the toolchain itself live in one place, `PvzToolchain` (the game's version 1.0.0, the
@@ -149,6 +153,38 @@ plugin's own version is also stated in `loom/build.gradle.kts`, because it has t
 plugin's class path to be applicable; the two are kept in sync, and so is the `+kotlin.` line of
 `fabric-language-kotlin` — it has to carry the very stdlib version the mods compile against.)
 
+## The development run
+
+`./gradlew runClient` starts the game the way `PvZ-Portable`'s own `./gradlew run` does — the
+distribution's jars on the class path, `KnotClient`, `-Dpvz.gameDir=run`,
+`-Dfabric.skipMcProvider=true` — with what makes it a *mod* run on top:
+
+- **This mod is on the class path**, not copied into `mods/`: the class path is the
+  `pvzRunClasspath` configuration (the distribution's jars, the language module, the API) plus
+  `sourceSets.main.output` — the compiled classes and the processed resources, `fabric.mod.json`
+  among them; only the output directories that exist, passed as one class path group (below).
+  `-Dfabric.development=true` is what makes the loader discover a mod
+  that is on the class path, which is exactly how fabric-loom's `runClient` loads the mod under
+  development; a run therefore reflects the sources, with nothing built by hand and nothing copied.
+- **`run/mods/` is neither written nor needed.** It stays what it is in an installation — the
+  directory a person drops another mod into, read by the loader from the game directory — so the API
+  and the language module no longer have to be there either. A jar of this mod that the old
+  `pvzModsJar` task left in `run/mods/` (`run/` is not in git) has to be deleted once, and this is
+  the one case where leaving it is worse than an error: the loader does *not* complain about the two
+  candidates for the same mod id, it resolves them to one of them — measured on fabric-loader
+  0.19.5, to the one in `run/mods` (its `added code source` names the jar, not the output
+  directories) — so the jar would silently be the mod that runs and a run would show nothing of the
+  sources.
+- The mod's own output directories are passed as **one class path group**
+  (`-Dfabric.classPathGroups=<classes dirs>:<resources dir>`). Fabric Loader looks for a mod in every
+  class path entry on its own: it finds the `fabric.mod.json` in `build/resources/main`, so *that* is
+  the directory it would register as the mod's code source, while the classes directories stay plain
+  parent-classpath entries — and a class defined by the parent class loader cannot see anything the
+  loader itself carries, the modules nested inside the API aggregate jar among them, which ends the
+  run in a `NoClassDefFoundError` on the mod's first API call. A group makes all of those paths the
+  mod's code sources, which is what a mod jar is in an installation (and what makes the loader, not
+  the parent, define the mod's classes, so Mixin can transform them like any other mod's).
+
 ## The API
 
 Every mod of this workspace requires the API in its `fabric.mod.json`
@@ -157,7 +193,7 @@ puts `cn.enaium.fabricpvz:fabric-api:1.0.0` (`PvzToolchain.API`) on the class pa
 tests and runs against — the very class paths the distribution's API jars used to be on.
 
 It is one coordinate and one jar, because the API ships the way Fabric API does: the aggregate jar
-carries its four feature modules (`api-base`, `api-events`, `api-plant`, `api-zombie`) **inside
+carries its five feature modules (`api-base`, `api-events`, `api-plant`, `api-resource`, `api-zombie`) **inside
 itself** (see [Jar-in-jar](#jar-in-jar-include)), so a mod depends on one id and an installation has
 one jar to drop into `mods/`. Two consequences for those class paths, and they are the two questions
 a build asks about a dependency:
@@ -171,17 +207,18 @@ a build asks about a dependency:
   that carried the modules separately as well would resolve every module twice. This is the same
   shape as the `fabric-language-kotlin` declaration (one jar, whose nested `kotlin-stdlib` is the
   runtime the loader provides) and the shape of an installation, where one jar in `mods/` is what the
-  four modules are loaded from. A development run discovers mods on the class path
+  five modules are loaded from. A development run discovers mods on the class path
   (`-Dfabric.development=true`, which `runClient` and the test fork both set), so the API is loaded
   in both from that one jar, with the modules the loader finds inside it — the loader's own mod list
   prints them nested under `fabric-api`:
 
   ```
-  Loading 24 mods:
+  Loading 25 mods:
   	- fabric-api 1.0.0
   	   |-- api-base 1.0.0
   	   |-- api-events 1.0.0
   	   |-- api-plant 1.0.0
+  	   |-- api-resource 1.0.0
   	   \-- api-zombie 1.0.0
   	- pvz-content-mod 1.0.0
   ```
@@ -303,16 +340,19 @@ from the Gradle user properties (`gradle.publish.key` / `gradle.publish.secret`)
 A plugin id the portal has not seen before is queued for review by Gradle engineers; until that review
 accepts it, `publishPlugins` reports the submission as pending acceptance and the marker is not served
 by `plugins.gradle.org/m2` yet, so nobody can resolve the plugin from the portal in the meantime. (The
-version that was submitted is the one a mod states - the artifact is published under this project's
-`version`, 1.0.0.)
+version that is published is the one a mod states - the artifact is published under this project's
+`version`, 1.0.1.)
 
-**State of the 1.0.0 publication:** submitted to the portal and awaiting that review - the plugin page
-and `plugins.gradle.org/m2` serve nothing for the id yet. Until the review accepts it, consumers
-resolve the plugin from `mavenLocal`, which this project provides with `./gradlew publishToMavenLocal`
-(that is the only step the review window adds; nothing in a mod's build changes). Every consumer's
-`settings.gradle.kts` therefore lists `mavenLocal()` after `gradlePluginPortal()` under a comment that
-starts "Temporary"; those lines and this paragraph are to be removed once the portal serves
-`cn.enaium.fabricpvz.loom:1.0.0`, because the portal resolves the plugin on its own then.
+**State of the publications:** 1.0.0 is on the portal
+(`cn.enaium.fabricpvz.loom:cn.enaium.fabricpvz.loom.gradle.plugin`, reviewed and served since
+2026-10-15); 1.0.1 - the runClient-that-loads-the-mod-from-the-class-path release - is published to
+`mavenLocal` only, so it resolves from there, and `./gradlew publishPlugins` in this project is the
+step that puts it on the portal as well. That is why every mod of this workspace lists `mavenLocal()`
+before `gradlePluginPortal()` in its `settings.gradle.kts` and states `version "1.0.1"`: a version the
+portal does not serve yet comes from the local copy, and the local copy is also what a developer of
+the toolchain wants to be picked up for a version the portal does serve. The `mavenLocal()` line can
+go once the portal serves 1.0.1; until then `./gradlew build publishToMavenLocal` here is a
+prerequisite of any mod build of this workspace (nothing else changes in the mods' builds).
 
 ## License
 

@@ -26,7 +26,6 @@ import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.SourceSet
 import org.gradle.api.tasks.SourceSetContainer
-import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.JavaCompile
@@ -72,8 +71,8 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
  *       for {@code testRuntimeOnly}, so a mod's end-to-end test can start the real Fabric Loader in
  *       a second JVM exactly like the launcher does;</li>
  *   <li>the {@code runClient} task: boots the game through the real loader - from the distribution's
- *       own jars - with the mod's built jar in {@code run/mods}, mirroring {@code ./gradlew run} in
- *       {@code PvZ-Portable};</li>
+ *       own jars - with this mod's own output (its compiled classes and processed resources) on the
+ *       class path, mirroring {@code ./gradlew run} in {@code PvZ-Portable};</li>
  *   <li>{@code include(...)} ({@link JarInJar}): a mod may carry another mod inside its own jar -
  *       nested under {@code META-INF/jars/} and listed in its packaged {@code fabric.mod.json} -
  *       which is how the API aggregate carries its modules;</li>
@@ -107,7 +106,7 @@ open class PvzModPlugin : Plugin<Project> {
         /** Task group of everything this plugin registers. */
         private const val TASK_GROUP = "fabric mod"
 
-        /** The class path {@code runClient} launches: the game distribution and the language module. */
+        /** What {@code runClient} launches besides this mod's own output: the game distribution and the language module. */
         private const val RUN_CLASSPATH = "pvzRunClasspath"
 
         /** The configuration that names the game distribution a mod is built against. */
@@ -125,10 +124,7 @@ open class PvzModPlugin : Plugin<Project> {
         /** The Gradle property that moves the release host (a mirror, or a server standing in for a release). */
         private const val PVZ_RELEASE_BASE_URL = "pvz.release.baseUrl"
 
-        /** Puts the built mod jar where the loader reads mods from. */
-        private const val MODS_JAR_TASK = "pvzModsJar"
-
-        /** Launches the game with this mod installed. */
+        /** Launches the game with this mod loaded from the class path. */
         private const val RUN_CLIENT_TASK = "runClient"
 
         /** The launcher main class of the real Fabric Loader (client environment), from its own manifest. */
@@ -391,7 +387,8 @@ open class PvzModPlugin : Plugin<Project> {
      * the archive has one: a mod is not something a game distribution ships, and a mod jar taken
      * from there would be a second answer to "where does this mod come from" next to the ones the
      * toolchain gives - the API arrives as its own coordinate ({@link #configureApi}) and a mod of
-     * this workspace arrives as the {@code mods/} jar the loader reads. It is also the difference
+     * this workspace arrives as its own output on the launch class path ({@link #configureRunClient}),
+     * or as the {@code mods/} jar a player installs. It is also the difference
      * that makes a distribution of any vintage work: the released asset of a version is cached per
      * version and never re-downloaded, so a build may well be pointed at a distribution whose
      * {@code mods/} still holds an older API.
@@ -565,16 +562,36 @@ open class PvzModPlugin : Plugin<Project> {
     }
 
     /**
-     * Boots the game the way the launcher does: {@code KnotClient} with the game distribution's jars
-     * (and the language module a Kotlin mod needs) on the class path and the mod's built jar in
-     * {@code run/mods} (the same shape as {@code PvZ-Portable}'s {@code run} task, which is what a
-     * mod author needs to try a change).
+     * Boots the game the way the launcher does, and the way a Minecraft developer's run does: a
+     * {@code KnotClient} whose class path is the game distribution's jars (the game, the provider
+     * with the real Fabric Loader, the game's own mods), the language module a Kotlin mod needs, and
+     * <b>this mod's own main output</b> - its compiled classes and its processed resources,
+     * {@code fabric.mod.json} among them ({@code sourceSets.main.output}, filtered to the
+     * directories that exist and passed as one {@code fabric.classPathGroups} entry). A development
+     * run discovers the mods that are on the class path ({@code -Dfabric.development=true} below),
+     * which is exactly how fabric-loom's {@code runClient} loads the mod under development and how
+     * this toolchain already gets the API and the language module there
+     * ({@link #configureApi}, {@link #configureKotlin}); so nothing has to be built, copied or
+     * re-copied before a run reflects a change.
+     *
+     * <p>That the game is the distribution's own jars (the same ones a mod compiles against) and not
+     * the application class path of {@code PvZ-Portable}'s {@code run} task is the one difference
+     * between the two: a mod project has no application class path of its own, so the game's is
+     * stated as a class path and the mod is added to it.
+     *
+     * <p>{@code run/mods/} is not written by the build and not needed for a run (it stays as the
+     * directory a developer drops another mod into, exactly like an installation's). One thing to
+     * know about it: a jar of <em>this</em> mod in there - what the older toolchain's {@code
+     * pvzModsJar} left behind, or a copy of a release - is not an error and not a duplicate
+     * either: the loader resolves the two candidates for the same id to one of them, and (measured
+     * on fabric-loader 0.19.5) to the one in {@code run/mods}, without a warning. That jar would
+     * then silently be the mod that runs, so it has to be deleted once.
      */
     private fun configureRunClient(project: Project) {
         val runClasspath = project.configurations.create(RUN_CLASSPATH) { configuration ->
-            configuration.description = "The game distribution's jars (the game, the provider with the real " +
-                "Fabric Loader, and the game's own mods) plus fabric-language-kotlin: what runClient " +
-                "launches. Not published: a mod never depends on its runtime."
+            configuration.description = "The jars runClient launches besides this mod's own output: the game " +
+                "distribution's jars (the game, the provider with the real Fabric Loader, the API) plus " +
+                "fabric-language-kotlin. Not published: a mod never depends on its runtime."
             configuration.isCanBeConsumed = false
             configuration.isCanBeResolved = true
         }
@@ -583,8 +600,8 @@ open class PvzModPlugin : Plugin<Project> {
         val dependencies = project.dependencies
         // The language module a Kotlin mod requires. A development run discovers the mods that are
         // on the class path (that is what -Dfabric.development=true below is for, and how the API
-        // modules are found as well), so this is the Loom-style way of having it here: the mod jar
-        // itself stays in run/mods, exactly like the one a player installs.
+        // modules are found as well), so this is the Loom-style way of having it here, next to the
+        // mod's own output on the same class path.
         //
         // Without its POM dependencies, exactly like the test one: the loader, Mixin, ASM and the
         // Log4j stack of this class path are the distribution's jars, and pulling the module tree in
@@ -596,30 +613,59 @@ open class PvzModPlugin : Plugin<Project> {
         (languageModule as ModuleDependency).isTransitive = false
 
         val runDirectory = File(project.projectDir, "run")
-
-        val modsJar = project.tasks.register(MODS_JAR_TASK, Sync::class.java) { task ->
-            task.group = TASK_GROUP
-            task.description = "Copies this mod's jar into run/mods, where Fabric Loader reads mods from."
-            task.into(File(runDirectory, "mods"))
-            task.from(project.tasks.named(JavaPlugin.JAR_TASK_NAME, Jar::class.java))
-        }
+        val mainSourceSet = project.extensions.getByType(SourceSetContainer::class.java)
+            .getByName(SourceSet.MAIN_SOURCE_SET_NAME)
+        // What this mod is in a development run: the main source set's own output - the compiled
+        // classes (build/classes/java/main, build/classes/kotlin/main) and the processed resources
+        // (build/resources/main, where fabric.mod.json and the mixin configurations are) - and, behind
+        // it, whatever the mod declares as `implementation`. `classesDirs` and the resources directory
+        // are the entries themselves (not the runtime class path) because they are also the group
+        // below, and their own task dependencies (compileJava, compileKotlin, processResources) come
+        // with them, so a run builds what it runs.
+        //
+        // Filtered to what exists *when the run is configured for execution*: the Kotlin Gradle plugin
+        // adds build/classes/kotlin/main to the output directories even when the mod has no Kotlin
+        // source at all, and Fabric Loader refuses nothing but does warn about a class path entry that
+        // is not there ("Class path entries reference missing files ... the game may not load
+        // properly!" - Knot checks java.class.path). After the compile and resource tasks of the run
+        // have been up to date or have run, this is exactly the output the mod has.
+        val mainOutput = mainSourceSet.output.filter { file -> file.exists() }
+        // The mod's own output directories as ONE class path group. They are separate class path
+        // entries (one per classes directory, one for the resources), and Fabric Loader looks for a
+        // mod in each class path entry on its own: it finds the `fabric.mod.json` in the resources
+        // directory, so *that* is the path it registers as the mod's code source, while the classes
+        // directories stay plain parent-classpath entries. Classes from a directory the loader does
+        // not own are defined by the parent class loader (KnotClassDelegate.isValidParentUrl: "reject
+        // urls shadowed by this cl"), and that parent is a *parent* of the Knot loader - so such a
+        // class cannot see the classes the loader itself carries, among them the modules nested inside
+        // the API aggregate jar, and a run dies with a NoClassDefFoundError on the mod's own first API
+        // call. `fabric.classPathGroups` is the loader's own answer: the paths of a group are one
+        // candidate and all of them become the mod's code sources, exactly like the paths of a mod jar
+        // in an installation (and the loader, not the parent, then defines the mod's classes, so Mixin
+        // can transform them too). The loader's own message about a class it "hasn't been exposed to
+        // the game" names this property for the same reason.
 
         project.tasks.register(RUN_CLIENT_TASK, JavaExec::class.java) { task ->
             task.group = TASK_GROUP
-            task.description = "Runs the game through the real Fabric Loader with this mod in run/mods."
+            task.description = "Runs the game through the real Fabric Loader with this mod's own output on the class path."
             task.mainClass.set(LAUNCHER_CLASS)
-            task.classpath = runClasspath
+            task.classpath = project.files(runClasspath, mainOutput)
             task.workingDir = runDirectory
-            task.dependsOn(modsJar)
             task.doFirst { runDirectory.mkdirs() }
             // The game directory: Fabric Loader reads mods/ from it (as in PvZ-Portable's run task).
             task.jvmArgs("-Dpvz.gameDir=" + runDirectory.absolutePath)
             // This port is the only game provider that can be present, so skip the Minecraft
             // detection pass over the class path.
             task.jvmArgs("-Dfabric.skipMcProvider=true")
-            // Development run: the game and the API are on the class path, so let the loader discover
-            // the mods there too; this mod itself is only ever loaded from mods/.
+            // Development run: the game, the API and this mod are on the class path, so let the
+            // loader discover the mods there (rather than only the jars in run/mods/).
             task.jvmArgs("-Dfabric.development=true")
+            // This mod's output directories are one class path entry as far as the loader is concerned
+            // (see above): without this it registers only the directory the fabric.mod.json is in and
+            // leaves the mod's classes to the parent class loader. An argument provider, not a
+            // `jvmArgs` line, because it reads the same lazily filtered collection the class path is
+            // made of - at execution time, when those directories exist.
+            task.jvmArgumentProviders.add(ClassPathGroup(mainOutput))
             task.jvmArgs("--enable-native-access=ALL-UNNAMED")
             if (isMac()) {
                 task.jvmArgs("-XstartOnFirstThread")
@@ -651,6 +697,24 @@ open class PvzModPlugin : Plugin<Project> {
             }
         }
     }
+}
+
+/**
+ * The {@code -Dfabric.classPathGroups} of a development run: this mod's own output directories as
+ * one group, so Fabric Loader treats them as the single class path entry a mod jar is
+ * ({@code ClasspathModCandidateFinder} looks for {@code fabric.mod.json} in every class path entry
+ * and without the group would register only the directory it found one in). See
+ * {@code PvzModPlugin.configureRunClient}.
+ *
+ * <p>An argument provider rather than a {@code jvmArgs} line because it reads the same lazily
+ * filtered collection the run's class path is made of, and that filter is only meaningful once the
+ * classes and resources of the mod have been written - i.e. when the run is configured for
+ * execution, not while the project is being configured.
+ */
+private class ClassPathGroup(private val outputDirectories: FileCollection) : CommandLineArgumentProvider {
+
+    override fun asArguments(): Iterable<String> =
+        listOf("-Dfabric.classPathGroups=" + outputDirectories.files.joinToString(File.pathSeparator))
 }
 
 /**

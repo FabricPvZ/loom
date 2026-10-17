@@ -1,6 +1,6 @@
 // The mod toolchain: one Gradle plugin, published to the Gradle Plugin Portal (and, for a developer of
 // this workspace, to mavenLocal as well), that a mod applies with a single line
-// (`plugins { id("cn.enaium.fabricpvz.loom") version "1.0.0" }`) to get the game distribution (the
+// (`plugins { id("cn.enaium.fabricpvz.loom") version "1.0.1" }`) to get the game distribution (the
 // game, the API, the real Fabric Loader, Mixin, ASM, SLF4J/Log4j and LWJGL, via the `pvz`
 // configuration), the launcher and test class paths and the conventional tasks (run the game with the
 // mod, run the mod's tests against the real loader) without declaring any of those artifacts by hand.
@@ -30,7 +30,10 @@ plugins {
 }
 
 group = "cn.enaium.fabricpvz"
-version = "1.0.0"
+// The plugin's own version, stated once and nowhere else: a mod names it in its `plugins` block and
+// the marker publication carries it. 1.0.1 is the runClient-from-the-classpath release (1.0.0 copied
+// the mod's jar into run/mods); the mods of this workspace name the version they were built with.
+version = "1.0.1"
 
 // The Kotlin Gradle plugin the toolchain applies to every mod (`org.jetbrains.kotlin.jvm`), so that a
 // mod never has to declare the plugin or its version: it is on this plugin's own class path, which is
