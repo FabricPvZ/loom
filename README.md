@@ -296,7 +296,7 @@ jars of the game distribution (`lib/slf4j-api-*.jar`, on the compile class path 
 them). The implementation (Log4j), its SLF4J binding and the configuration (`log4j2.xml`) are launch
 libraries of the game distribution and thus jars of the distribution too,
 which also points Fabric Loader's own log at the same stack, so Fabric Loader's lines, the Mixin
-subsystem's lines and the mods' lines are one stream in one format. See `fabric-provider/README.md`.
+subsystem's lines and the mods' lines are one stream in one format. See `../PvZ-Portable/GAME-PROVIDER.md`.
 
 ## Why this plugin is not fabric-loom
 
