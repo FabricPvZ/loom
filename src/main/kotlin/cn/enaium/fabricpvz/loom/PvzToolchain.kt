@@ -28,7 +28,7 @@ class PvzToolchain private constructor() {
          * default of the toolchain's {@code pvz} dependency and what a release of the game tags and
          * names the asset after.
          */
-        const val GAME_VERSION = "1.2.4"
+        const val GAME_VERSION = "1.2.5"
 
         /** The game's Maven coordinates, i.e. the notation the {@code pvz} configuration takes. */
         const val GAME = "$GROUP:pvz-portable:$GAME_VERSION"
