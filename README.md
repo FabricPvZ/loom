@@ -367,9 +367,9 @@ The checklist for a release, in order:
 mod-from-the-class-path release), 1.0.2 (the game's package naming: it downloaded
 `pvz-portable-<version>-offline.zip`), 1.0.3 (the version package, with the layout bug above), 1.0.4
  (that bug fixed), 1.0.5 (the version package's manifest is read and its libraries are Maven
-coordinates, linking against API 1.2.0), 1.0.6 (the game's 1.2.2) and 1.0.7 (the current one: the
-game's 1.2.3, whose resource search survives a launcher's remapped `user.home`) are all on the portal,
-with `latest`/`release` = 1.0.7. `https://plugins.gradle.org/m2/` is therefore the one source a mod of this workspace needs,
+coordinates, linking against API 1.2.0), 1.0.6 (the game's 1.2.2), 1.0.7 (the game's 1.2.3, whose
+resource search survives a launcher's remapped `user.home`) and 1.0.8 (the current one: the game's 1.2.4,
+whose saves stay where a plain run puts them) are all on the portal, with `latest`/`release` = 1.0.8. `https://plugins.gradle.org/m2/` is therefore the one source a mod of this workspace needs,
 and publishing this plugin to `mavenLocal` is not a prerequisite of a mod build any more. The mods
 state `version "1.0.5"` and list `gradlePluginPortal()` first in their `settings.gradle.kts`, keeping
 `mavenLocal()` after it as a fallback for a version the portal does not serve yet (a development
