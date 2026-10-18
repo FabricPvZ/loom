@@ -28,7 +28,7 @@ class PvzToolchain private constructor() {
          * default of the toolchain's {@code pvz} dependency and what a release of the game tags and
          * names the asset after.
          */
-        const val GAME_VERSION = "1.0.0"
+        const val GAME_VERSION = "1.2.1"
 
         /** The game's Maven coordinates, i.e. the notation the {@code pvz} configuration takes. */
         const val GAME = "$GROUP:pvz-portable:$GAME_VERSION"
@@ -49,10 +49,11 @@ class PvzToolchain private constructor() {
 
         /**
          * The API's own version - the modules of this workspace version on their own, not with the game.
-         * The mods of the workspace require {@code fabric-api >= 1.0.0} in their {@code fabric.mod.json},
-         * which is this version.
+         * It is the newest published API, the one a mod compiled with this toolchain links against; a
+         * mod's own {@code fabric.mod.json} is what states the range it requires, and the mods of the
+         * workspace all require {@code fabric-api >= 1.0.0}.
          */
-        const val API_VERSION = "1.0.0"
+        const val API_VERSION = "1.2.0"
 
         /** The aggregate's Maven artifact id, i.e. the mod id a mod requires and the jar it is loaded from. */
         const val API_ARTIFACT = "fabric-api"

@@ -1,6 +1,6 @@
 // The mod toolchain: one Gradle plugin, published to the Gradle Plugin Portal (and, for a developer of
 // this workspace, to mavenLocal as well), that a mod applies with a single line
-// (`plugins { id("cn.enaium.fabricpvz.loom") version "1.0.1" }`) to get the game distribution (the
+// (`plugins { id("cn.enaium.fabricpvz.loom") version "1.0.5" }`) to get the game distribution (the
 // game, the API, the real Fabric Loader, Mixin, ASM, SLF4J/Log4j and LWJGL, via the `pvz`
 // configuration), the launcher and test class paths and the conventional tasks (run the game with the
 // mod, run the mod's tests against the real loader) without declaring any of those artifacts by hand.
@@ -31,12 +31,13 @@ plugins {
 
 group = "cn.enaium.fabricpvz"
 // The plugin's own version, stated once and nowhere else: a mod names it in its `plugins` block and
-// the marker publication carries it. 1.0.2 follows the game's package naming - the release asset it
-// downloads is pvz-portable-<version>-offline.zip (1.0.1 loaded pvz-portable-<version>.zip, which a
-// 1.1.0 release still attaches alongside the new name); 1.0.1 is the runClient-from-the-classpath
-// release (1.0.0 copied the mod's jar into run/mods). The mods of this workspace name the version
-// they were built with.
-version = "1.0.2"
+// the marker publication carries it. 1.0.5 links against API 1.2.0 (1.0.4 followed the game's package naming and reads the version
+// package it downloads instead of putting the archive's jars on a class path: the game jar is a file
+// and every library the package's manifest names is a Maven coordinate (1.0.3 fixed the unpacking of the package layout; 1.0.2 loaded the
+// offline package's lib/ as files; 1.0.1 loaded the unsuffixed asset; 1.0.0 copied the mod's jar into
+// run/mods) - and 1.0.5 links against API 1.2.0). The mods of this workspace name the version they
+// were built with.
+version = "1.0.5"
 
 // The Kotlin Gradle plugin the toolchain applies to every mod (`org.jetbrains.kotlin.jvm`), so that a
 // mod never has to declare the plugin or its version: it is on this plugin's own class path, which is
@@ -62,6 +63,25 @@ dependencies {
     // told so. compileOnly, so the published POM of the plugin declares no dependency Gradle already
     // has on the plugin's own class path (a mod build would otherwise resolve a second Groovy).
     compileOnly(localGroovy())
+
+    // The plugin's own tests: pure functions of the version manifest (parsing, and which native
+    // libraries belong to a platform), the unpacking of both distribution layouts, and a functional
+    // test that runs a real mod build with this plugin (Gradle's TestKit). The same Groovy is on the
+    // test class path through Gradle's.
+    testImplementation(kotlin("test"))
+    testImplementation(gradleTestKit())
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}
+
+// A version is published only after it has been tested locally (the rule of this workspace, and the
+// reason 1.0.3 shipped a layout bug that only a mod build could see): publishing runs the tests,
+// which include the functional test below - a real mod build against this plugin, resolving the
+// release's version package and compiling a class that uses the game, the loader and LWJGL.
+tasks.named("publishPlugins") {
+    dependsOn(tasks.named("test"))
 }
 
 java {

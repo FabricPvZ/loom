@@ -77,18 +77,15 @@ abstract class PvzDistTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val localDistribution: DirectoryProperty
 
-    /** The {@code lib/} of the distribution: the game and the jars the launcher starts it with. */
-    @get:OutputDirectory
-    @get:Optional
-    abstract val libDirectory: DirectoryProperty
-
     /**
-     * The {@code mods/} of the distribution, when the archive has one: unpacked with the rest, but not
-     * a class path entry of a mod build (see {@code PvzModPlugin#distJars}).
+     * Where the distribution lands: {@code build/pvz/dist}, holding what the archive holds - a version
+     * package's jar and manifest ({@code PvZ-Portable-<version>/…}), or the {@code lib/} and
+     * {@code mods/} of an application-style archive. A mod build compiles and launches against it
+     * ({@code PvzModPlugin}: the game jar as a file, the manifest's libraries as Maven coordinates).
      */
     @get:OutputDirectory
     @get:Optional
-    abstract val modsDirectory: DirectoryProperty
+    abstract val distDirectory: DirectoryProperty
 
     /** Where a downloaded release asset is cached ({@code caches/pvz} of the Gradle user home). */
     @get:Internal
@@ -107,15 +104,14 @@ abstract class PvzDistTask : DefaultTask() {
             return
         }
 
-        if (!libDirectory.isPresent) {
+        if (!distDirectory.isPresent) {
             throw GradleException(
                 "The $path task has no distribution source: name one with the pvz" +
                     " configuration, pvz(\"${PvzToolchain.GAME}\") for a released version or" +
                     " pvz(files(\"<distribution>\")) for one on disk."
             )
         }
-        val lib = libDirectory.get().asFile.toPath()
-        val distribution: Path = lib.parent
+        val distribution = distDirectory.get().asFile.toPath()
 
         val source: String
         val zip: Path
@@ -142,10 +138,21 @@ abstract class PvzDistTask : DefaultTask() {
 
     /** Says which distribution this build compiles and launches against: the answer to "where did the game come from". */
     private fun report(distribution: Path, how: String) {
+        val game = PvzDist.gameJar(distribution)
+        if (game != null) {
+            val manifest = PvzDist.packageOfDirectory(distribution)!!.manifest
+            val libraries = VersionJson.parse(manifest, "$distribution").libraries
+            logger.info("pvz: {} as the game and {} library entries from {} ({})", game.fileName, libraries.size, distribution, how)
+            logger.lifecycle(
+                "pvz: compiling and launching against {} (the game jar, {} Maven libraries) - {}",
+                distribution, libraries.size, how
+            )
+            return
+        }
         val jars = PvzDist.classpath(distribution)
         logger.info("pvz: {} jars from {} ({})", jars.size, distribution, how)
         logger.lifecycle(
-            "pvz: compiling and launching against {} ({} jars) - {}",
+            "pvz: compiling and launching against {} ({} lib jars) - {}",
             distribution, jars.size, how
         )
     }

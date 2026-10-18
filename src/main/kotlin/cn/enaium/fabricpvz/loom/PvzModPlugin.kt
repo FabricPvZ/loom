@@ -273,37 +273,63 @@ open class PvzModPlugin : Plugin<Project> {
 
         val dist = project.tasks.register(PVZ_DIST_TASK, PvzDistTask::class.java) { task ->
             task.group = TASK_GROUP
-            task.description = "Provides the game distribution the pvz configuration names - downloads the release" +
-                " asset of the version, or takes the local archive / unpacked distribution - and unpacks it" +
-                " into " + PVZ_DIST_DIRECTORY + " (" + PvzDist.LIB + "/ is the class path a mod builds and" +
-                " runs against)."
+            task.description = "Provides the game distribution the pvz configuration names - downloads the" +
+                " version package of the release, or takes the local archive / unpacked distribution - and" +
+                " unpacks it into " + PVZ_DIST_DIRECTORY + " (its game jar is a file of the class paths, its" +
+                " manifest's libraries are Maven coordinates)."
             task.cacheDirectory.set(File(project.gradle.gradleUserHomeDir, PVZ_CACHE_DIRECTORY))
-            task.libDirectory.set(project.layout.buildDirectory.dir(PVZ_DIST_DIRECTORY + "/" + PvzDist.LIB))
-            task.modsDirectory.set(project.layout.buildDirectory.dir(PVZ_DIST_DIRECTORY + "/" + PvzDist.MODS))
+            task.distDirectory.set(project.layout.buildDirectory.dir(PVZ_DIST_DIRECTORY))
             task.offline.set(project.gradle.startParameter.isOffline)
         }
 
-        // Which distribution it is comes from the build script (the pvz configuration), so the jars can
+        // Which distribution it is comes from the build script (the pvz configuration), so the entries can
         // only be put on the class paths once it has run - and they have to be there before
         // compileClasspath, testRuntimeClasspath and pvzRunClasspath are resolved, which happens later.
         project.afterEvaluate { evaluated ->
             val distribution = resolvePvzDist(evaluated, pvz, dist)
-            evaluated.dependencies.add("compileOnly", distribution)
-            evaluated.dependencies.add("testImplementation", distribution)
-            evaluated.dependencies.add(RUN_CLASSPATH, distribution)
+            // The game itself: one file, because no repository holds it (its launcher entry point is
+            // published inside it). Everything else the version manifest lists is a Maven coordinate, so
+            // Gradle - and not this toolchain - resolves, caches and conflict-manages it.
+            evaluated.dependencies.add("compileOnly", distribution.game)
+            evaluated.dependencies.add("testImplementation", distribution.game)
+            evaluated.dependencies.add(RUN_CLASSPATH, distribution.game)
+            for (library in distribution.libraries) {
+                evaluated.dependencies.add("compileOnly", library)
+                evaluated.dependencies.add("testImplementation", library)
+                evaluated.dependencies.add(RUN_CLASSPATH, library)
+            }
+            // The natives of the machine this build runs on: a runtime class path only, because a native
+            // jar carries no class a mod would compile against.
+            for (native in distribution.natives) {
+                evaluated.dependencies.add("testRuntimeOnly", native)
+                evaluated.dependencies.add(RUN_CLASSPATH, native)
+            }
         }
     }
 
     /**
-     * Reads the {@code pvz} configuration and turns it into the class path entries of the game
-     * distribution: the {@code pvzDist} task's {@code lib/} when the distribution has to be obtained
-     * (under {@code build/pvz/dist}), or the {@code lib/} of a local unpacked distribution, in place.
+     * What a mod's class paths are made of, from the distribution the {@code pvz} configuration names:
+     * the game as files (the one artifact no repository holds), and the version manifest's libraries as
+     * Maven coordinates - {@link VersionJson} - of which the natives of this machine are a runtime class
+     * path only. An application-style distribution has no manifest: everything it ships is a file.
+     */
+    private class DistSpec(
+        val game: FileCollection,
+        val libraries: List<String>,
+        val natives: List<String>,
+    )
+
+    /**
+     * Reads the {@code pvz} configuration and turns it into what a mod compiles, tests and launches
+     * against. A version package (the release asset, or a local archive / directory holding one) is read
+     * through its manifest; an application-style distribution ({@code lib/} of jars) is read as the class
+     * path it is, which is how an archive of a release cut before the package naming still builds.
      *
      * <p>Everything that can be wrong about the notation is reported here, while the build is still
      * being configured: a coordinate that is not the game, a version it does not state, a local path
      * that is not there, or an asset a release directory does not hold.
      */
-    private fun resolvePvzDist(project: Project, pvz: Configuration, dist: TaskProvider<PvzDistTask>): FileCollection {
+    private fun resolvePvzDist(project: Project, pvz: Configuration, dist: TaskProvider<PvzDistTask>): DistSpec {
         val local = LinkedHashSet<File>()
         val versions = ArrayList<String>()
         for (dependency in pvz.dependencies) {
@@ -343,55 +369,105 @@ open class PvzModPlugin : Plugin<Project> {
                 task.version.set(version)
                 task.releaseUrls.set(urls)
             }
-            return distJars(project, dist, buildDistDirectory(project))
+            // The manifest has to be read while the build is still being configured, because the
+            // coordinates it names have to be on the configurations before those are resolved - so the
+            // asset is obtained here instead of by the task. It is the same download either way: one
+            // cached copy per version (`caches/pvz`), and the task finds it there and only unpacks it.
+            val cache = File(project.gradle.gradleUserHomeDir, PVZ_CACHE_DIRECTORY).toPath()
+            val zip = PvzDist.cachedAsset(cache, version)
+            PvzDist.download(version, urls, zip, project.gradle.startParameter.isOffline, project.logger)
+            return specOf(project, dist, zip, buildDistDirectory(project), "the release of $version")
         }
 
         val source = local.iterator().next().toPath()
         if (Files.isDirectory(source)) {
-            if (PvzDist.isDistribution(source)) {
-                // A distribution that already is one: used where it is (its jars are the class path
-                // entries), and pvzDist stays in the graph only to check it and say which one it is.
+            if (PvzDist.packageOfDirectory(source) != null) {
+                // A version package that already is unpacked: used where it is, nothing copied.
                 PvzDist.requireUsable(source, "The local distribution " + source)
                 dist.configure { task -> task.localDistribution.set(source.toFile()) }
-                return distJars(project, dist, source)
+                return specOf(project, dist, source, source, "the local distribution " + source)
             }
-            // A release directory: the distribution of the version this build is against, by name.
+            if (PvzDist.isDistribution(source)) {
+                // An application-style distribution that already is unpacked: the same, read as the class
+                // path it is (its lib/ jars), because there is no manifest to read coordinates from.
+                PvzDist.requireUsable(source, "The local distribution " + source)
+                dist.configure { task -> task.localDistribution.set(source.toFile()) }
+                return DistSpec(offlineJars(project, source, dist), emptyList(), emptyList())
+            }
+            // A release directory: the version package of the version this build is against, by name.
             val asset = source.resolve(PvzDist.assetName(version))
             if (!Files.isRegularFile(asset)) {
                 throw GradleException("The release directory " + source + " holds no " + PvzDist.assetName(version) +
                     " (" + version + " is the version this build is against): build the game first" +
-                    " (./gradlew distZip in PvZ-Portable writes that file), point pvz at another version, or" +
+                    " (./gradlew mcVersionZip in PvZ-Portable writes that file), point pvz at another version, or" +
                     " point it at a distribution zip / unpacked distribution directly.")
             }
             return fromArchive(project, dist, asset, "the distribution of the release directory " + source)
         }
         if (!Files.isRegularFile(source)) {
             throw GradleException("The local game distribution " + source + " does not exist: point pvz at the" +
-                " distribution archive a build wrote (the game's distZip output), at an unpacked distribution" +
-                " (a directory with " + PvzDist.LIB + "/), or at a directory of release archives.")
+                " distribution archive a build wrote (the game's mcVersionZip output), at an unpacked" +
+                " distribution (a directory with the version package or a " + PvzDist.LIB + "/ of jars), or at a" +
+                " directory of release archives.")
         }
         return fromArchive(project, dist, source, "the local distribution archive " + source)
     }
 
-    /** Wires the {@code pvzDist} task to unpack one archive, and returns the class path entries of the result. */
-    private fun fromArchive(project: Project, dist: TaskProvider<PvzDistTask>, zip: Path, what: String): FileCollection {
+    /** What the distribution at {@code packageDirectory} (a zip, read without unpacking it) is. */
+    private fun specOf(
+        project: Project,
+        dist: TaskProvider<PvzDistTask>,
+        zip: Path,
+        packageDirectory: Path,
+        what: String,
+    ): DistSpec {
+        val manifest = PvzDist.packageOfZip(zip)
+        return if (manifest != null) {
+            packageSpec(project, dist, packageDirectory, manifest, what) { packageDirectory.resolve(manifest.gameJar) }
+        } else {
+            DistSpec(offlineJars(project, packageDirectory, dist), emptyList(), emptyList())
+        }
+    }
+
+    /** Wires the {@code pvzDist} task to unpack one archive, and returns what the result is. */
+    private fun fromArchive(project: Project, dist: TaskProvider<PvzDistTask>, zip: Path, what: String): DistSpec {
         dist.configure { task -> task.zip.set(zip.toFile()) }
         project.logger.info("pvz: {} is {}", what, zip)
-        return distJars(project, dist, buildDistDirectory(project))
+        return specOf(project, dist, zip, buildDistDirectory(project), what)
+    }
+
+    /** The class path entries of a version package: its game jar as a file, its libraries as coordinates. */
+    private fun packageSpec(
+        project: Project,
+        dist: TaskProvider<PvzDistTask>,
+        packageDirectory: Path,
+        packageContent: PvzDist.Package,
+        what: String,
+        game: () -> Path,
+    ): DistSpec {
+        val manifest = VersionJson.parse(packageContent.manifest, what)
+        val libraries = manifest.javaLibraries().map { it.coordinate }
+        // `group:artifact:version:classifier` is Gradle's notation for an artifact with a classifier,
+        // which is exactly what a natives entry of the manifest is.
+        val natives = manifest.nativeLibraries(VersionJson.Platform.current()).map { native ->
+            native.coordinate + ":" + native.classifier
+        }
+        return DistSpec(gameFile(project, dist, game()), libraries, natives)
+    }
+
+    /** The game jar of a distribution as a class path entry, built by the task that unpacks it. */
+    private fun gameFile(project: Project, dist: TaskProvider<PvzDistTask>, game: Path): FileCollection {
+        val files: ConfigurableFileCollection = project.files(game.toFile())
+        files.builtBy(dist)
+        return files
     }
 
     /**
-     * The class path of a distribution, as the entries it is: its {@code lib/&#42;.jar} - the launcher
-     * class path (the game, the provider with the real Fabric Loader, Mixin, ASM, the SLF4J/Log4j
-     * stack and LWJGL). A {@code mods/} directory of the distribution is not one of them, even when
-     * the archive has one: a mod is not something a game distribution ships, and a mod jar taken
-     * from there would be a second answer to "where does this mod come from" next to the ones the
-     * toolchain gives - the API arrives as its own coordinate ({@link #configureApi}) and a mod of
-     * this workspace arrives as its own output on the launch class path ({@link #configureRunClient}),
-     * or as the {@code mods/} jar a player installs. It is also the difference
-     * that makes a distribution of any vintage work: the released asset of a version is cached per
-     * version and never re-downloaded, so a build may well be pointed at a distribution whose
-     * {@code mods/} still holds an older API.
+     * The {@code lib/&#42;.jar} of an application-style distribution: the launcher class path (the game,
+     * the real Fabric Loader with Mixin and ASM, the SLF4J/Log4j stack and LWJGL with the natives of
+     * every platform). This is the shape a release cut before the package naming has, and the shape
+     * {@code distZip} writes; a version package instead names its libraries and they arrive as Maven
+     * coordinates ({@link #configurePvz}), so this is empty for one.
      *
      * <p>They are the <em>files</em> and not the directory: a class path directory entry is a package
      * tree of {@code .class} files, so a directory holding jars contributes nothing (a real
@@ -401,7 +477,7 @@ open class PvzModPlugin : Plugin<Project> {
      * being configured, so the collection is resolved when it is used - after {@code pvzDist} has run,
      * which is what this collection says it is built by.
      */
-    private fun distJars(project: Project, dist: TaskProvider<PvzDistTask>, distribution: Path): FileCollection {
+    private fun offlineJars(project: Project, distribution: Path, dist: TaskProvider<PvzDistTask>): FileCollection {
         val jars: ConfigurableFileCollection = project.files(
             project.fileTree(distribution.toFile()) { tree -> tree.include(PvzDist.LIB + "/*.jar") }
         )

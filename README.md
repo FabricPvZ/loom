@@ -10,8 +10,8 @@ does not serve yet - a development version built here, see
 | | |
 |---|---|
 | plugin id | `cn.enaium.fabricpvz.loom` |
-| artifact | `cn.enaium.fabricpvz:loom:1.0.1` |
-| marker | `cn.enaium.fabricpvz.loom:cn.enaium.fabricpvz.loom.gradle.plugin:1.0.1` |
+| artifact | `cn.enaium.fabricpvz:loom:1.0.4` |
+| marker | `cn.enaium.fabricpvz.loom:cn.enaium.fabricpvz.loom.gradle.plugin:1.0.4` |
 | portal | https://plugins.gradle.org/plugin/cn.enaium.fabricpvz.loom |
 
 The plugin is written in Kotlin (`src/main/kotlin/cn/enaium/fabricpvz/loom/`): the same classes under
@@ -24,7 +24,7 @@ mod's class path is unaffected by that.
 ## Usage
 
 ```kotlin
-plugins { id("cn.enaium.fabricpvz.loom") version "1.0.1" }
+plugins { id("cn.enaium.fabricpvz.loom") version "1.0.5" }
 
 group = "cn.enaium.fabricpvz"
 version = "1.0.0"
@@ -251,8 +251,8 @@ itself; `add("include", …)` is the same thing and always available.
 
 The project that uses this in this workspace is the API aggregate itself
 (`fabric-api/build.gradle.kts`). It is *not* a mod project of the toolchain (no game code, no `pvz`
-distribution, its own publication), so it does not apply the plugin: it declares
-`id("cn.enaium.fabricpvz.loom") version "1.0.0" apply false` — which is what puts the plugin's
+distribution, its own publication), so it applies the plugin with `apply false` —
+`id("cn.enaium.fabricpvz.loom") version "1.0.5" apply false` — which is what puts the plugin's
 classes on its build script class path — and calls the mechanism directly, `JarInJar.include(...)`
 with the configuration `JarInJar.configuration(project)`. One mechanism, one implementation; the
 plugin is only the wiring a mod gets for free.
@@ -324,7 +324,7 @@ that installs its own repository set would silently drop `mavenLocal`.
 ## Publishing this plugin
 
 ```bash
-./gradlew publishPlugins       # to the Gradle Plugin Portal (what a mod's one line resolves)
+./gradlew publishPlugins       # to the Gradle Plugin Portal (what a mod's one line resolves) - runs `test` first
 ./gradlew publishToMavenLocal  # to mavenLocal, for a developer of this workspace
 ```
 
@@ -343,16 +343,36 @@ is what 1.0.0 went through (the id is accepted since 2026-10-15); a version publ
 is one - is served as soon as `publishPlugins` reports success. (The version that is published is the
 one a mod states - the artifact is published under this project's `version`, 1.0.1.)
 
-**State of the publications:** 1.0.0 is on the portal
-(`cn.enaium.fabricpvz.loom:cn.enaium.fabricpvz.loom.gradle.plugin`, reviewed and served since
-2026-10-15) and 1.0.1 - the runClient-that-loads-the-mod-from-the-class-path release - was published
-with `./gradlew publishPlugins` and is served as well: its
-`.../cn.enaium.fabricpvz.loom.gradle.plugin/maven-metadata.xml` lists both versions with
-`latest`/`release` = 1.0.1. `https://plugins.gradle.org/m2/` is therefore the one source a mod of this
-workspace needs, and publishing this plugin to `mavenLocal` is not a prerequisite of a mod build any
-more. The mods state `version "1.0.1"` and list `gradlePluginPortal()` first in their
-`settings.gradle.kts`, keeping `mavenLocal()` after it as a fallback for a version the portal does not
-serve yet (a development version built here).
+**Published only after it has been tested locally.** The rule of this workspace, and the reason it
+exists: 1.0.3 was published without it and could not compile a single mod - it unpacked the version
+package by flattening the `PvZ-Portable-<version>/` directory away, so the jar the manifest named was
+not the file the extraction wrote, and only a *mod* build could see it. `publishPlugins` therefore
+depends on `test`, which includes the functional test a unit test cannot replace
+(`PvzPluginFunctionalTest`, Gradle's TestKit): it runs a real build that applies this plugin, names a
+released game version exactly as a mod does, and compiles a class that uses the game, Fabric Loader
+and LWJGL - the download of the release's version package, its layout, the game jar as a file and the
+libraries the manifest names as Maven coordinates, all in one build. A version whose game version the
+release does not carry fails there instead of in a user's build.
+
+The checklist for a release, in order:
+
+1. `./gradlew build` here - the unit tests (the manifest parser, the platform-to-natives rules, the
+   unpacking of both layouts, the functional test above);
+2. a mod of the workspace against it (`pvz("cn.enaium.fabricpvz:pvz-portable:<version>")`, a clean
+   `build/pvz/dist`), `./gradlew build` in one of them;
+3. `./gradlew publishPlugins` (which runs the tests again, as the gate) and the portal's
+   `maven-metadata.xml` shows the new `latest`/`release`.
+
+**State of the publications:** 1.0.0 (the first id acceptance), 1.0.1 (the runClient-that-loads-the-
+mod-from-the-class-path release), 1.0.2 (the game's package naming: it downloaded
+`pvz-portable-<version>-offline.zip`), 1.0.3 (the version package, with the layout bug above), 1.0.4
+(that bug fixed) and 1.0.5 (the current one: the version package's manifest is read and its libraries
+are Maven coordinates, and it links against API 1.2.0) are all on the portal, with `latest`/`release`
+= 1.0.5. `https://plugins.gradle.org/m2/` is therefore the one source a mod of this workspace needs,
+and publishing this plugin to `mavenLocal` is not a prerequisite of a mod build any more. The mods
+state `version "1.0.5"` and list `gradlePluginPortal()` first in their `settings.gradle.kts`, keeping
+`mavenLocal()` after it as a fallback for a version the portal does not serve yet (a development
+version built here).
 
 ## License
 
