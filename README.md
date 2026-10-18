@@ -309,7 +309,7 @@ dependencies`), pointing `minecraft` at the game gives `Failed to find minecraft
 makes it install its own repository set (dropping the settings' `mavenLocal`), inject Minecraft's
 library set, and remap the jar to `intermediary`; and it does not supply the loader or Mixin at all
 (`import org.spongepowered.asm.mixin.Mixin` fails to compile with Loom alone). Full transcript:
-`docs/VERIFICATION.md §31`.
+`../verification/VERIFICATION.md §31`.
 
 One thing it does share with Loom is the shape of "the game a mod is built against": Loom's
 `minecraft("com.mojang:minecraft:…")` + `mappings(…)` pair is this plugin's `pvz` configuration

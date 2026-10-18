@@ -8,7 +8,7 @@
 // It exists instead of fabric-loom because Loom is a Minecraft build plugin: it cannot even be
 // configured without a `minecraft` dependency on a real Mojang version plus mappings, it injects
 // Minecraft's own library set, it remaps the built jar to intermediary, and it does not supply the
-// loader or Mixin anyway (see docs/VERIFICATION.md, "Loom 实验").
+// loader or Mixin anyway (see ../verification/VERIFICATION.md, "Loom 实验").
 import org.gradle.plugin.compatibility.compatibility
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -31,9 +31,12 @@ plugins {
 
 group = "cn.enaium.fabricpvz"
 // The plugin's own version, stated once and nowhere else: a mod names it in its `plugins` block and
-// the marker publication carries it. 1.0.1 is the runClient-from-the-classpath release (1.0.0 copied
-// the mod's jar into run/mods); the mods of this workspace name the version they were built with.
-version = "1.0.1"
+// the marker publication carries it. 1.0.2 follows the game's package naming - the release asset it
+// downloads is pvz-portable-<version>-offline.zip (1.0.1 loaded pvz-portable-<version>.zip, which a
+// 1.1.0 release still attaches alongside the new name); 1.0.1 is the runClient-from-the-classpath
+// release (1.0.0 copied the mod's jar into run/mods). The mods of this workspace name the version
+// they were built with.
+version = "1.0.2"
 
 // The Kotlin Gradle plugin the toolchain applies to every mod (`org.jetbrains.kotlin.jvm`), so that a
 // mod never has to declare the plugin or its version: it is on this plugin's own class path, which is

@@ -71,8 +71,15 @@ internal object PvzDist {
     /** {@code lib/…} and {@code mods/…} jars, at any depth of the archive's root directory. */
     private val JAR: Pattern = Pattern.compile("""^(?:.*/)?($LIB|$MODS)/([^/]+\.jar)${'$'}""")
 
-    /** The release asset name of a version, e.g. {@code pvz-portable-1.0.0.zip}. */
-    fun assetName(version: String): String = ASSET_PREFIX + version + ASSET_EXTENSION
+    /**
+     * The release asset name of a version, e.g. {@code pvz-portable-1.0.0-offline.zip}.
+     *
+     * <p>The suffix is the workspace's package naming: the game's release attaches two archives with one
+     * prefix - {@code -offline} for the self-contained distribution a mod compiles and launches against
+     * (which is what this toolchain downloads) and {@code -online} for the Minecraft-style version
+     * package, whose dependencies are downloaded by the launcher.
+     */
+    fun assetName(version: String): String = ASSET_PREFIX + version + "-offline" + ASSET_EXTENSION
 
     /**
      * The release asset URLs of a version, in the order they are tried.
