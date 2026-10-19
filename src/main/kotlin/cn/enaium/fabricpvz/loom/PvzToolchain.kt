@@ -53,7 +53,7 @@ class PvzToolchain private constructor() {
          * mod's own {@code fabric.mod.json} is what states the range it requires, and the mods of the
          * workspace all require {@code fabric-api >= 1.0.0}.
          */
-        const val API_VERSION = "1.2.0"
+        const val API_VERSION = "1.2.1"
 
         /** The aggregate's Maven artifact id, i.e. the mod id a mod requires and the jar it is loaded from. */
         const val API_ARTIFACT = "fabric-api"
