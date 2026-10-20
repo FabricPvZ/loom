@@ -34,8 +34,6 @@ import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.gradle.api.tasks.testing.logging.TestLogEvent
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.process.CommandLineArgumentProvider
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 /**
  * The mod toolchain of this workspace: applied as {@code cn.enaium.fabricpvz.loom}, one line, and
@@ -44,44 +42,44 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
  * <p>The game side of a mod comes from a <b>distribution</b> and from nowhere else: the
  * {@code pvz} configuration names it ({@link #PVZ_CONFIGURATION}), {@link PvzDistTask} obtains it,
  * and its jars are what the mod compiles against and what the loader runs. A distribution is the
- * release asset {@code pvz-portable-<version>.zip} the game's release attaches (the
- * {@code application} plugin's layout: {@code lib/} with the game, the provider and through it the
- * real Fabric Loader, Mixin, ASM, the SLF4J/Log4j stack and LWJGL with the native libraries of
- * every platform it runs on) - or a distribution on disk for testing. The toolchain therefore does
- * not inject the game, the provider, the loader, Mixin or ASM as coordinates: naming them would be
- * a second version list to keep in sync with the jars the launcher actually loads, and the
- * distribution already <em>is</em> that list. See {@link PvzDist} and {@code loom/README.md}.
+ * release asset {@code pvz-portable-<version>.zip} the game's release attaches - a version package,
+ * the game jar with its JSON manifest next to it (the manifest names the game's libraries: the real
+ * Fabric Loader, Mixin, ASM, the SLF4J/Log4j stack and LWJGL with the natives of this machine) - or
+ * a distribution on disk for testing. The toolchain therefore does not inject the game, the loader,
+ * Mixin or ASM as coordinates: the version package's JSON already <em>is</em> that list, at whatever
+ * version the release carries. See {@link PvzDist} and {@code loom/README.md}.
  *
- * <p>Its {@code mods/} is the one thing a distribution does not have: a game distribution is a
- * game, and a mod jar on a launch class path is inert outside a development run, so what the player
- * installs belongs in the installation's own {@code mods/} directory and nowhere else. The one mod
- * a mod build needs through the toolchain - the workspace's API, which every mod of the workspace
- * requires - is therefore a coordinate of the toolchain ({@link PvzToolchain#API}), put on the
- * class paths a build compiles, tests and runs against by {@link #configureApi}: the aggregate jar,
- * whose nested jars are the four feature modules ({@link JarInJar}), so one artifact supplies the
- * five mods of the API on every one of those class paths, exactly as one jar in {@code mods/} does
- * in an installation.
+ * <p>Its {@code mods/} is not a class path of a mod build: a game distribution is a game, and a
+ * mod jar on a launch class path is inert outside a development run, so what a player installs
+ * belongs in the installation's own {@code mods/} directory and nowhere else.
  *
- * <p>What it supplies besides that:
+ * <p>That is the whole contract, and it is deliberately narrow: the toolchain supplies the game and
+ * the libraries the version package's JSON next to the game jar names, and <em>nothing</em> else.
+ * A mod's own dependencies - the Kotlin Gradle plugin and the stdlib, JUnit, the workspace's API,
+ * {@code fabric-language-kotlin} - are declared by the mod, in its own build file, exactly like the
+ * dependencies of any other project. The toolchain neither applies a language plugin nor picks a
+ * test framework nor a version of the API for the mods.
+ *
+ * <p>What it supplies besides the game distribution:
  * <ul>
- *   <li>{@code compileOnly}: the jars of the distribution ({@code lib/}) and the Kotlin stdlib -
- *       the mod compiles against them and bundles none of them - plus the API, with its modules
- *       ({@link #configureApi});</li>
- *   <li>the same jars for {@code testImplementation}, plus {@code fabric-language-kotlin} and JUnit
- *       for {@code testRuntimeOnly}, so a mod's end-to-end test can start the real Fabric Loader in
- *       a second JVM exactly like the launcher does;</li>
+ *   <li>{@code compileOnly}: the jars the version package's manifest names - the game itself plus
+ *       the loader, Mixin, ASM, the logging stack and LWJGL - so the mod compiles against exactly
+ *       what the launcher loads (the manifest's native entries are runtime-only: a native jar
+ *       carries no class a mod would compile against);</li>
+ *   <li>the same jars for {@code testImplementation} and the natives for
+ *       {@code testRuntimeOnly}, so a mod's end-to-end test can start the real Fabric Loader in a
+ *       second JVM exactly like the launcher does;</li>
  *   <li>the {@code runClient} task: boots the game through the real loader - from the distribution's
- *       own jars - with this mod's own output (its compiled classes and processed resources) on the
- *       class path, mirroring {@code ./gradlew run} in {@code PvZ-Portable};</li>
+ *       own jars plus whatever the mod puts on {@code pvzRunClasspath} - with this mod's own output
+ *       (its compiled classes and processed resources) on the class path, mirroring
+ *       {@code ./gradlew run} in {@code PvZ-Portable};</li>
  *   <li>{@code include(...)} ({@link JarInJar}): a mod may carry another mod inside its own jar -
  *       nested under {@code META-INF/jars/} and listed in its packaged {@code fabric.mod.json} -
  *       which is how the API aggregate carries its modules;</li>
- *   <li>Kotlin support ({@link #configureKotlin}): the mod may be written in Kotlin, compiled at the
- *       same target as the game, against the stdlib the language module provides - and
- *       {@code fabric-language-kotlin} is on the class paths a run uses, so the Kotlin runtime of a
- *       mod is the real Fabric language module's;</li>
  *   <li>the test conventions of this workspace (JUnit platform, the fork's {@code pvz.test.modJar} /
- *       {@code pvz.test.forkClasspath} system properties, headless SDL, first thread on macOS);</li>
+ *       {@code pvz.test.forkClasspath} system properties, headless SDL, first thread on macOS, and a
+ *       launch class path with no Kotlin runtime of its own - the one a mod brings is what it
+ *       runs on);</li>
  *   <li>the Maven publication of the mod jar ({@code mavenLocal} coordinates, MIT).</li>
  * </ul>
  *
@@ -129,9 +127,6 @@ open class PvzModPlugin : Plugin<Project> {
 
         /** The launcher main class of the real Fabric Loader (client environment), from its own manifest. */
         private const val LAUNCHER_CLASS = "net.fabricmc.loader.impl.launch.knot.KnotClient"
-
-        private const val LANGUAGE_KOTLIN = PvzToolchain.FABRIC_LANGUAGE_KOTLIN_COORDINATE
-        private const val JUNIT_BOM = "org.junit:junit-bom:" + PvzToolchain.JUNIT
     }
 
     override fun apply(project: Project) {
@@ -139,16 +134,11 @@ open class PvzModPlugin : Plugin<Project> {
         project.pluginManager.apply("maven-publish")
 
         configureJava(project)
-        configureKotlin(project)
         configurePvz(project)
-        configureDependencies(project)
         configureJar(project)
         configureIncludes(project)
         configureTests(project)
         configureRunClient(project)
-        // After configureRunClient: the API is an entry of the launcher class path too, so the
-        // configuration it goes on (RUN_CLASSPATH) has to exist by then.
-        configureApi(project)
         configurePublishing(project)
     }
 
@@ -160,73 +150,6 @@ open class PvzModPlugin : Plugin<Project> {
             task.options.encoding = "UTF-8"
             task.options.release.set(PvzToolchain.JAVA)
         }
-    }
-
-    /**
-     * Kotlin support: a mod may be written in Kotlin (its mixins stay Java - a Mixin configuration is
-     * a Java class annotated with {@code @Mixin} and Mixin's own processor reads it as such).
-     *
-     * <p>What the toolchain does, and why:
-     * <ul>
-     *   <li>applies {@code org.jetbrains.kotlin.jvm}: the plugin (and its version,
-     *       {@link PvzToolchain#KOTLIN}) sits on this plugin's own class path, so a mod states
-     *       neither;</li>
-     *   <li>compiles Kotlin at the same target as the Java sources, {@link PvzToolchain#JAVA}: the
-     *       mod's classes must be the class file version the game's are (and Kotlin 2.4 is the first
-     *       release line that both accepts {@code jvmTarget 25} and can read Java 25 class files);</li>
-     *   <li>declares {@code kotlin-stdlib} {@code compileOnly} (and for the tests, where the test
-     *       JVM itself runs Kotlin-aware test code such as {@code kotlin.KotlinVersion}): a mod jar
-     *       compiles against the stdlib, bundles none and publishes none
-     *       ({@link #configureJar}), and the copy it resolves {@code kotlin.*} from at runtime is the
-     *       one {@code fabric-language-kotlin} carries - that mod is on the launch class path
-     *       ({@link #configureRunClient}) and the loader adds its nested {@code kotlin-stdlib} to the
-     *       class path, so every Kotlin mod of an installation shares the one copy instead of each
-     *       jar bundling its own. The Kotlin Gradle plugin's default dependency on the stdlib is
-     *       switched off for that reason;</li>
-     *   <li>puts {@code fabric-language-kotlin} ({@link PvzToolchain#FABRIC_LANGUAGE_KOTLIN}) on the
-     *       launcher and test class paths: it is the language module a Kotlin mod declares in its
-     *       {@code fabric.mod.json} and the owner of the runtime stdlib, and in a development run the
-     *       loader resolves the mods that are on the class path (the same convention fabric-loom
-     *       uses), so a mod's own {@code runClient} and end-to-end test have it without a jar being
-     *       copied around. An installation (a real {@code mods/} directory) instead carries the jar,
-     *       like any other mod.</li>
-     * </ul>
-     *
-     * <p>Entry points: use a Kotlin {@code class} with a no-argument constructor, not an
-     * {@code object}. Fabric Loader instantiates a {@code ModInitializer} entry point reflectively
-     * through its no-argument constructor, and a Kotlin {@code object} has only a private one; an
-     * {@code object} would need the {@code "kotlin"} language adapter of
-     * {@code fabric-language-kotlin} - which this toolchain now ships, so a mod that wants an
-     * {@code object} entry point may name it as
-     * {@code {"adapter": "kotlin", "value": "..."}}. The mods of this workspace keep the plain class:
-     * nothing about them needs the adapter.
-     */
-    private fun configureKotlin(project: Project) {
-        // Read by the Kotlin Gradle plugin when it is applied (the next line), so it is set first.
-        // Without it the stdlib lands in `implementation` and is published as a runtime dependency of
-        // the mod, which is exactly what a mod must not declare (the launcher provides it).
-        project.extensions.extraProperties.set("kotlin.stdlib.default.dependency", "false")
-        project.pluginManager.apply("org.jetbrains.kotlin.jvm")
-
-        val kotlin = project.extensions.getByType(KotlinJvmProjectExtension::class.java)
-        kotlin.compilerOptions.jvmTarget.set(JvmTarget.fromTarget(PvzToolchain.JAVA.toString()))
-
-        // The stdlib, like the loader and the game: on the compile class path, never bundled, never
-        // published. At runtime the mod links against the copy fabric-language-kotlin carries, which
-        // is also what the tests get (they run inside the loader, and their own JVM needs the stdlib
-        // for the test class itself).
-        project.dependencies.add("compileOnly", PvzToolchain.KOTLIN_STDLIB)
-        project.dependencies.add("testImplementation", PvzToolchain.KOTLIN_STDLIB)
-
-        // The language module: a mod of this workspace requires it (its `fabric.mod.json` says so),
-        // so the class paths the toolchain launches have to bring it. It is resolved without its own
-        // POM dependencies: the Kotlin runtime it provides is the `kotlin-stdlib` (and the kotlinx
-        // libraries) nested in its jar, which the loader adds to the class path when it loads the
-        // mod - exactly like a real installation, where only this one jar is there. Letting Gradle
-        // pull the POM tree in as well would put a second, plain copy of every one of those libraries
-        // on the launch class path, which is the duplication the nested jars exist to avoid.
-        val languageModule = project.dependencies.add("testRuntimeOnly", LANGUAGE_KOTLIN)
-        (languageModule as ModuleDependency).isTransitive = false
     }
 
     /**
@@ -491,58 +414,6 @@ open class PvzModPlugin : Plugin<Project> {
     }
 
     /**
-     * The workspace's API on the class paths a mod compiles, tests and runs against: the aggregate
-     * jar of {@link PvzToolchain#API}, whose nested jars are the four feature modules
-     * ({@link JarInJar}) - one artifact where a distribution used to carry five jars in its
-     * {@code mods/} directory, which is now a game only.
-     *
-     * <p>Two questions, four class paths:
-     * <ul>
-     *   <li>compilation - {@code compileOnly} and {@code testCompileOnly}, <em>with</em> the
-     *       aggregate's own dependencies: a mod's sources and its tests use the API's types
-     *       ({@code LawnEvents}, {@code PlantRegistry}, …), and those classes are the modules' - javac
-     *       reads jar files, not jars nested inside a jar, so a compile class path has to carry the
-     *       modules themselves. The aggregate declares them ({@code api} in its build and in its POM,
-     *       exactly as Fabric API does), so this one coordinate brings both;</li>
-     *   <li>runtime - {@code testImplementation} and the {@code runClient} class path
-     *       ({@link #RUN_CLASSPATH}), <em>without</em> them: at runtime Fabric Loader reads the nested
-     *       jars out of the aggregate, so a class path that also carried the modules separately would
-     *       resolve every module twice - once from inside the aggregate and once as a class path mod.
-     *       This is the shape of the {@code fabric-language-kotlin} declaration below (one jar, whose
-     *       nested {@code kotlin-stdlib} is the runtime the loader provides) and the shape of an
-     *       installation, where the aggregate's one jar in {@code mods/} is what the modules are
-     *       loaded from. A development run discovers mods on the class path
-     *       ({@code -Dfabric.development=true}, {@link #configureRunClient}) - and a mod's end-to-end
-     *       test launches the same launcher with the same class path ({@link #configureTests}) - so
-     *       the API is loaded, in both, from that one jar.</li>
-     * </ul>
-     *
-     * <p>A mod states none of this: it declares {@code "fabric-api": ">=1.0.0"} in its
-     * {@code fabric.mod.json} like any other mod dependency, and the toolchain is where the jar that
-     * satisfies it comes from.
-     */
-    private fun configureApi(project: Project) {
-        val dependencies = project.dependencies
-
-        // Compilation - this project's and its tests', which compile against the same API: the
-        // aggregate and, through its own POM, the modules it nests. `testCompileOnly` because a test
-        // source set does not inherit `compileOnly` here, and never `testImplementation`: the modules
-        // may be on a *compile* class path, they must not be on a runtime one (see below).
-        for (configuration in listOf("compileOnly", "testCompileOnly")) {
-            dependencies.add(configuration, PvzToolchain.API)
-        }
-
-        // Runtime - the test fork's launcher class path and runClient: the aggregate alone - its
-        // nested jars are the modules, for Fabric Loader as much as for anything else reading this
-        // class path. Not transitive, so no second copy of a module ends up on a class path the
-        // loader walks.
-        for (configuration in listOf("testImplementation", RUN_CLASSPATH)) {
-            val api = dependencies.add(configuration, PvzToolchain.API)
-            (api as ModuleDependency).isTransitive = false
-        }
-    }
-
-    /**
      * Fabric Loom's {@code include(...)} for a mod of this workspace ({@link JarInJar}): the mods a
      * mod carries inside its own jar, declared as ordinary dependencies in the {@code include}
      * configuration, then nested into the built jar - under {@code META-INF/jars/} and listed in its
@@ -573,24 +444,6 @@ open class PvzModPlugin : Plugin<Project> {
             }
             JarInJar.include(jar.get(), include)
         }
-    }
-
-    /** The dependencies the toolchain itself provides. The game side - the game, the provider, the
-     * real Fabric Loader, Mixin, ASM, SLF4J and Log4j - is not here: it is the game distribution the
-     * {@code pvz} configuration names ({@link #configurePvz}), whose jars arrive on the same class
-     * paths (and are also what {@code runClient} launches, which is what makes "compile against what
-     * runs" true by construction). The API, the one mod every mod of this workspace requires, is the
-     * toolchain's own coordinate and arrives through {@link #configureApi}.
-     */
-    private fun configureDependencies(project: Project) {
-        val dependencies = project.dependencies
-
-        // Testing a mod: the end-to-end harness starts the real loader in a second JVM, so the test
-        // class path is a launcher class path - the distribution's jars (added by configurePvz),
-        // fabric-language-kotlin and JUnit.
-        dependencies.add("testImplementation", dependencies.platform(JUNIT_BOM))
-        dependencies.add("testImplementation", "org.junit.jupiter:junit-jupiter")
-        dependencies.add("testRuntimeOnly", "org.junit.platform:junit-platform-launcher")
     }
 
     /** Mod jars are plain class jars: they bundle no dependencies, so a duplicate is a bug. */
@@ -639,16 +492,16 @@ open class PvzModPlugin : Plugin<Project> {
 
     /**
      * Boots the game the way the launcher does, and the way a Minecraft developer's run does: a
-     * {@code KnotClient} whose class path is the game distribution's jars (the game, the provider
-     * with the real Fabric Loader, the game's own mods), the language module a Kotlin mod needs, and
+     * {@code KnotClient} whose class path is the game distribution's jars (the game and the
+     * libraries the version package's JSON names), whatever the mod adds to
+     * {@code pvzRunClasspath} (the API, the language module, its own libraries), and
      * <b>this mod's own main output</b> - its compiled classes and its processed resources,
      * {@code fabric.mod.json} among them ({@code sourceSets.main.output}, filtered to the
      * directories that exist and passed as one {@code fabric.classPathGroups} entry). A development
      * run discovers the mods that are on the class path ({@code -Dfabric.development=true} below),
-     * which is exactly how fabric-loom's {@code runClient} loads the mod under development and how
-     * this toolchain already gets the API and the language module there
-     * ({@link #configureApi}, {@link #configureKotlin}); so nothing has to be built, copied or
-     * re-copied before a run reflects a change.
+     * which is exactly how fabric-loom's {@code runClient} loads the mod under development - and
+     * how the dependencies the mod declares on {@code pvzRunClasspath} are found there; so nothing
+     * has to be built, copied or re-copied before a run reflects a change.
      *
      * <p>That the game is the distribution's own jars (the same ones a mod compiles against) and not
      * the application class path of {@code PvZ-Portable}'s {@code run} task is the one difference
@@ -666,28 +519,14 @@ open class PvzModPlugin : Plugin<Project> {
     private fun configureRunClient(project: Project) {
         val runClasspath = project.configurations.create(RUN_CLASSPATH) { configuration ->
             configuration.description = "The jars runClient launches besides this mod's own output: the game " +
-                "distribution's jars (the game, the provider with the real Fabric Loader, the API) plus " +
-                "fabric-language-kotlin. Not published: a mod never depends on its runtime."
+                "distribution's jars (the game and the libraries the version package's JSON names) plus " +
+                "whatever the mod declares here (its API, fabric-language-kotlin, its libraries). Not " +
+                "published: a mod never depends on its runtime."
             configuration.isCanBeConsumed = false
             configuration.isCanBeResolved = true
         }
-        // The distribution's jars (the game, the provider with the real loader, and the game's own
-        // mods, i.e. the API modules) are added by configurePvz.
-        val dependencies = project.dependencies
-        // The language module a Kotlin mod requires. A development run discovers the mods that are
-        // on the class path (that is what -Dfabric.development=true below is for, and how the API
-        // modules are found as well), so this is the Loom-style way of having it here, next to the
-        // mod's own output on the same class path.
-        //
-        // Without its POM dependencies, exactly like the test one: the loader, Mixin, ASM and the
-        // Log4j stack of this class path are the distribution's jars, and pulling the module tree in
-        // as well would put a second Fabric Loader of the same version on the class path (the
-        // language module depends on it), which the loader refuses: "duplicate fabric loader classes
-        // found on classpath". The Kotlin runtime it provides is the stdlib nested in its own jar,
-        // which the loader adds when it loads the module.
-        val languageModule = dependencies.add(RUN_CLASSPATH, LANGUAGE_KOTLIN)
-        (languageModule as ModuleDependency).isTransitive = false
-
+        // The distribution's jars are added by configurePvz; what else the run has on its class
+        // path is the mod's own declaration on this configuration.
         val runDirectory = File(project.projectDir, "run")
         val mainSourceSet = project.extensions.getByType(SourceSetContainer::class.java)
             .getByName(SourceSet.MAIN_SOURCE_SET_NAME)
@@ -699,7 +538,7 @@ open class PvzModPlugin : Plugin<Project> {
         // below, and their own task dependencies (compileJava, compileKotlin, processResources) come
         // with them, so a run builds what it runs.
         //
-        // Filtered to what exists *when the run is configured for execution*: the Kotlin Gradle plugin
+        // Filtered to what exists *when the run is configured for execution*: a Kotlin mod's plugin
         // adds build/classes/kotlin/main to the output directories even when the mod has no Kotlin
         // source at all, and Fabric Loader refuses nothing but does warn about a class path entry that
         // is not there ("Class path entries reference missing files ... the game may not load
@@ -733,8 +572,9 @@ open class PvzModPlugin : Plugin<Project> {
             // This port is the only game provider that can be present, so skip the Minecraft
             // detection pass over the class path.
             task.jvmArgs("-Dfabric.skipMcProvider=true")
-            // Development run: the game, the API and this mod are on the class path, so let the
-            // loader discover the mods there (rather than only the jars in run/mods/).
+            // Development run: the game, the dependencies this mod declares on pvzRunClasspath and
+            // this mod itself are on the class path, so let the loader discover the mods there
+            // (rather than only the jars in run/mods/).
             task.jvmArgs("-Dfabric.development=true")
             // This mod's output directories are one class path entry as far as the loader is concerned
             // (see above): without this it registers only the directory the fabric.mod.json is in and
@@ -795,9 +635,10 @@ private class ClassPathGroup(private val outputDirectories: FileCollection) : Co
 
 /**
  * The class path of the loader-launching fork: the test runtime class path (the jars of the game
- * distribution, test classes, JUnit) without this project's own main output, so the mod under test
- * can only be the jar in the {@code mods/} directory. Source sets without resources contribute
- * directories that do not exist; the loader warns about those, so they are dropped.
+ * distribution, test classes, and whatever the mod declares for its tests) without this project's
+ * own main output, so the mod under test can only be the jar in the {@code mods/} directory.
+ * Source sets without resources contribute directories that do not exist; the loader warns about
+ * those, so they are dropped.
  *
  * <p>It is an argument provider rather than a plain system property value because the class path
  * is only complete once {@code pvzDist} has unpacked the game distribution, i.e. long after the
@@ -828,13 +669,13 @@ private fun forkClasspath(sourceSets: SourceSetContainer): String {
 
 /**
  * Whether a test class path entry is a Kotlin runtime rather than something the loader has to
- * see: a launch class path carries no {@code kotlin-stdlib} of its own, because the one a mod
- * resolves {@code kotlin.*} from is nested in {@code fabric-language-kotlin}'s jar and the loader
- * puts it on the class path when it loads that mod. The stdlib on this project's test class path
- * exists for the test JVM itself (its own assertions are written against the version the mod
- * compiles against) and is left out of the fork, so the end-to-end test runs the mod under
- * exactly the runtime an installation provides - and its "where does the stdlib come from" probe
- * has only one possible answer.
+ * see: a launch class path carries no {@code kotlin-stdlib} of its own, even when the mod declares
+ * the stdlib for its tests (as a Kotlin mod does) - the copy it resolves {@code kotlin.*} from at
+ * runtime is the one nested in {@code fabric-language-kotlin}'s jar, which the loader puts on the
+ * class path when it loads that mod. The stdlib on this project's test class path exists for the
+ * test JVM itself, and is left out of the fork, so the end-to-end test runs the mod under exactly
+ * the runtime an installation provides - and its "where does the stdlib come from" probe has only
+ * one possible answer.
  */
 private fun isKotlinRuntime(file: File): Boolean {
     val name = file.name

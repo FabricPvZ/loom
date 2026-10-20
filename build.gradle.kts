@@ -1,9 +1,11 @@
 // The mod toolchain: one Gradle plugin, published to the Gradle Plugin Portal (and, for a developer of
 // this workspace, to mavenLocal as well), that a mod applies with a single line
-// (`plugins { id("cn.enaium.fabricpvz.loom") version "1.0.9" }`) to get the game distribution (the
-// game, the API, the real Fabric Loader, Mixin, ASM, SLF4J/Log4j and LWJGL, via the `pvz`
+// (`plugins { id("cn.enaium.fabricpvz.loom") version "1.0.14" }`) to get the game distribution (the
+// game and the libraries the online version package's JSON next to the game jar names, via the `pvz`
 // configuration), the launcher and test class paths and the conventional tasks (run the game with the
-// mod, run the mod's tests against the real loader) without declaring any of those artifacts by hand.
+// mod, run the mod's tests against the real loader). It supplies nothing besides the game: a mod's
+// Kotlin plugin and stdlib, its JUnit, its `fabric-language-kotlin` and the API are the mod's own
+// declarations.
 //
 // It exists instead of fabric-loom because Loom is a Minecraft build plugin: it cannot even be
 // configured without a `minecraft` dependency on a real Mojang version plus mappings, it injects
@@ -23,42 +25,36 @@ plugins {
     // marker (`cn.enaium.fabricpvz.loom.gradle.plugin`). The `mavenLocal` publication stays - a
     // developer of this workspace still gets the plugin that way with `publishToMavenLocal`.
     id("com.gradle.plugin-publish") version "2.2.1"
-    // The toolchain itself is written in Kotlin (the same five classes, same package, same names).
-    // The version is the one PvzToolchain.KOTLIN states and the one a mod's `kotlin-stdlib` comes
-    // from: the plugin compiles the mods' Kotlin, so its own compiler is that same release line.
+    // The toolchain itself is written in Kotlin (the same five classes, same package, same names),
+    // so it compiles itself with the Kotlin Gradle plugin. That plugin is the plugin's own build
+    // tool and is not a mod's: the mods apply `org.jetbrains.kotlin.jvm` and declare their stdlib
+    // themselves.
     kotlin("jvm") version "2.4.21"
 }
 
 group = "cn.enaium.fabricpvz"
 // The plugin's own version, stated once and nowhere else: a mod names it in its `plugins` block and
-// the marker publication carries it. The versions, newest first: 1.0.9 is the game's 1.2.5 (the build
-// identity it logs is real); 1.0.8 is 1.2.4 (saves stay
-// where a plain run puts them, whatever launches the game); 1.0.7 is 1.2.3 (the resource search
-// survives a launcher's remapped user.home); 1.0.6 is 1.2.2; 1.0.5 links against API 1.2.0; 1.0.4
-// fixed the unpacking of the version package; 1.0.3 reads that package's manifest and puts the game jar
-// on the class paths as a file and its libraries there as Maven coordinates; 1.0.2 downloaded the
-// offline package; 1.0.1 loaded the mod from the run class path; 1.0.0 copied the mod's jar into
-// run/mods. The mods of this workspace name the version they were built with.
-version = "1.0.9"
+// the marker publication carries it. The versions, newest first: 1.0.14 supplies the game and the
+// libraries the online version package's JSON names, and nothing else - the Kotlin plugin and stdlib,
+// JUnit, `fabric-language-kotlin` and the API are declared by each mod now. (1.0.12 and 1.0.13 were
+// created on the portal by upload attempts that died at the artifact upload, so they carry no
+// artifacts and cannot be published again; 1.0.10/1.0.11 were never usable either. 1.0.14 is the
+// next free version.) 1.0.9 is the game's 1.2.5 1.0.9 is the game's 1.2.5 (the build identity it logs is
+// real); 1.0.8 is 1.2.4 (saves stay where a plain run puts them, whatever launches the game); 1.0.7
+// is 1.2.3 (the resource search survives a launcher's remapped user.home); 1.0.6 is 1.2.2; 1.0.5
+// links against API 1.2.0; 1.0.4 fixed the unpacking of the version package; 1.0.3 reads that
+// package's manifest and puts the game jar on the class paths as a file and its libraries there as
+// Maven coordinates; 1.0.2 downloaded the offline package; 1.0.1 loaded the mod from the run class
+// path; 1.0.0 copied the mod's jar into run/mods. The mods of this workspace name the version they
+// were built with.
+version = "1.0.14"
 
-// The Kotlin Gradle plugin the toolchain applies to every mod (`org.jetbrains.kotlin.jvm`), so that a
-// mod never has to declare the plugin or its version: it is on this plugin's own class path, which is
-// what the mod's build script class path resolves (the publication below publishes it as a runtime
-// dependency of `cn.enaium.fabricpvz:loom`).
-//
-// The version is pinned to PvzToolchain.KOTLIN, which is also the kotlin-stdlib version a mod
-// compiles against; the two must stay in sync with the runtime stdlib, which is the one
-// fabric-language-kotlin (the language module this toolchain ships) nests in its jar (see
-// PvzToolchain.FABRIC_LANGUAGE_KOTLIN).
+// The plugin's own sources are Kotlin, so the Kotlin Gradle plugin puts `kotlin-stdlib` on
+// `implementation` (the usual default) and it becomes a runtime dependency of
+// `cn.enaium.fabricpvz:loom` - the stdlib this plugin's classes were compiled against, i.e. the only
+// one a consumer of the plugin loads. No Kotlin Gradle plugin is published as a dependency: this
+// plugin compiles Kotlin for itself and does not compile anyone else's.
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.21")
-
-    // The plugin's own sources are Kotlin now, so the Kotlin Gradle plugin adds `kotlin-stdlib` to
-    // `implementation` (the usual default), and it therefore becomes a runtime dependency of
-    // `cn.enaium.fabricpvz:loom` - the version this plugin's classes were compiled against, which is
-    // the only stdlib a consumer of this plugin should load. That is the one deliberate addition to
-    // the published POM next to the Java version's dependency set.
-
     // The jar-in-jar mechanism (JarInJar) rewrites the packaged fabric.mod.json, i.e. it parses and
     // re-serializes JSON. That is Groovy's (groovy.json.JsonSlurper / JsonOutput), which ships with
     // Gradle and is on the class path of every plugin at runtime; only the compilation needs to be
@@ -76,14 +72,6 @@ dependencies {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
-}
-
-// A version is published only after it has been tested locally (the rule of this workspace, and the
-// reason 1.0.3 shipped a layout bug that only a mod build could see): publishing runs the tests,
-// which include the functional test below - a real mod build against this plugin, resolving the
-// release's version package and compiling a class that uses the game, the loader and LWJGL.
-tasks.named("publishPlugins") {
-    dependsOn(tasks.named("test"))
 }
 
 java {

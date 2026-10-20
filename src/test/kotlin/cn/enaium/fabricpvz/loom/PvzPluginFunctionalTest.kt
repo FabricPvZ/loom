@@ -32,9 +32,10 @@ class PvzPluginFunctionalTest {
 
     @Test
     fun `a mod build compiles against the release's version package`(@TempDir directory: Path) {
-        // The repositories a mod of this workspace declares (and the guide's template carries): the API
-        // is only in mavenLocal and the loader only on Fabric's maven, while the libraries the version
-        // manifest names come from Maven Central.
+        // The repositories a mod of this workspace declares (and the guide's template carries): the
+        // libraries the version manifest names come from Maven Central and Fabric's maven, and
+        // mavenLocal is where this workspace's own publications live (the API a mod declares for
+        // itself, the plugin itself when a version is not on the portal yet).
         directory.resolve("settings.gradle.kts").writeText(
             """
             rootProject.name = "functional-test-mod"
