@@ -10,8 +10,8 @@ does not serve yet - a development version built here, see
 | | |
 |---|---|
 | plugin id | `cn.enaium.fabricpvz.loom` |
-| artifact | `cn.enaium.fabricpvz:loom:1.0.14` |
-| marker | `cn.enaium.fabricpvz.loom:cn.enaium.fabricpvz.loom.gradle.plugin:1.0.14` |
+| artifact | `cn.enaium.fabricpvz:loom:1.0.15` |
+| marker | `cn.enaium.fabricpvz.loom:cn.enaium.fabricpvz.loom.gradle.plugin:1.0.15` |
 | portal | https://plugins.gradle.org/plugin/cn.enaium.fabricpvz.loom |
 
 The plugin is written in Kotlin (`src/main/kotlin/cn/enaium/fabricpvz/loom/`): the same classes under
@@ -24,7 +24,7 @@ plugin is this project's build tool, not a dependency of the plugin or of a mod.
 ## Usage
 
 ```kotlin
-plugins { id("cn.enaium.fabricpvz.loom") version "1.0.14" }
+plugins { id("cn.enaium.fabricpvz.loom") version "1.0.15" }
 
 group = "cn.enaium.fabricpvz"
 version = "1.0.0"
@@ -42,7 +42,7 @@ the build's `pluginManagement` block, and the mods of this workspace list `gradl
 first: the portal serves every version it has been given, so nothing has to be published locally
 before a mod can be built. `mavenLocal()` stays after the portal in those settings as a fallback for a
 version the portal does not serve yet (a development version built here with
-`./gradlew publishToMavenLocal`; 1.0.14 is the current one), and a version the portal serves always
+`./gradlew publishToMavenLocal`; 1.0.15 is the current one), and a version the portal serves always
 resolves from the portal (see [Publishing this plugin](#publishing-this-plugin)).
 
 What the plugin supplies is the game and nothing else — see [What it supplies](#what-it-supplies).
@@ -50,7 +50,7 @@ Everything else a mod uses is the mod's own declaration:
 
 ```kotlin
 plugins {
-    id("cn.enaium.fabricpvz.loom") version "1.0.14"
+    id("cn.enaium.fabricpvz.loom") version "1.0.15"
     kotlin("jvm") version "2.4.21"          // a Kotlin mod; a Java mod leaves it out
 }
 
@@ -59,23 +59,45 @@ dependencies {
     compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.4.21")
     testImplementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.21")
 
-    // The API this mod is built against (its aggregate jar, whose nested jars are its modules).
+    // The language module a Kotlin mod runs on: on this mod's runtime class path (runClient) and on
+    // the test class path. Its POM's Fabric Loader is the distribution's; one resolution graph,
+    // one copy.
+    implementation("net.fabricmc:fabric-language-kotlin:1.14.2+kotlin.2.4.21")
+    testRuntimeOnly("net.fabricmc:fabric-language-kotlin:1.14.2+kotlin.2.4.21")
+
+    // The API this mod is built against: compile against the aggregate jar (its POM names the five
+    // feature modules, which is what compilation reads), and carry it inside this mod's own jar
+    // (`include`: nested under META-INF/jars/, listed in fabric.mod.json, and on the run class path)
+    // so an installation only needs this one jar.
     compileOnly("cn.enaium.fabricpvz:fabric-api:1.2.1")
     testCompileOnly("cn.enaium.fabricpvz:fabric-api:1.2.1")
-    testImplementation("cn.enaium.fabricpvz:fabric-api:1.2.1") { isTransitive = false }
-    pvzRunClasspath("cn.enaium.fabricpvz:fabric-api:1.2.1") { isTransitive = false }
+    include("cn.enaium.fabricpvz:fabric-api:1.2.1")
 
-    // The end-to-end test: JUnit, and the language module a Kotlin mod runs on.
+    // The end-to-end test: JUnit, on the platform the toolchain's test tasks use.
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    testRuntimeOnly("net.fabricmc:fabric-language-kotlin:1.14.2+kotlin.2.4.21") { isTransitive = false }
-    pvzRunClasspath("net.fabricmc:fabric-language-kotlin:1.14.2+kotlin.2.4.21") { isTransitive = false }
 }
 
 // The Kotlin Gradle plugin would otherwise put the stdlib on `implementation` (and thus in the POM).
 kotlin.stdlib.default.dependency=false   // gradle.properties
 ```
+
+There is no third declaration per dependency and no `isTransitive = false`: a mod declares what it
+uses, like any Gradle build.
+
+| declaration | what it means |
+|---|---|
+| `compileOnly` | compile against the jar, do not publish it, do not launch with it (the game and its libraries are the toolchain's `compileOnly`) |
+| `testCompileOnly` | the same for the test source set, which does not inherit `compileOnly` |
+| `implementation` | compile and run: the jar is on this mod's `runtimeClasspath`, which `runClient` launches |
+| `testImplementation` / `testRuntimeOnly` | the test source set's class path (and the loader fork's, which is that class path minus this project's output) |
+| `include` | embed the jar in this mod's own jar under `META-INF/jars/`, list it in the packaged `fabric.mod.json`, and put it on the run class path — Fabric Loom's `include(...)` |
+| `pvz` | the game distribution the mod is built against |
+
+All of them are ordinary Gradle configurations. Their dependency graphs are resolved together where
+they meet, so a library both the game distribution and a mod name (the Fabric Loader a language
+module depends on) arrives once, whichever versions are involved.
 
 ## The game distribution (`pvz`)
 
@@ -176,9 +198,9 @@ its own declarations.
 | `compileOnly` | the game jar of the version package (a file, built by `pvzDist`) and the libraries its manifest lists (the real Fabric Loader, Mixin, ASM, SLF4J/Log4j, LWJGL), as Maven coordinates |
 | `testImplementation` | the same game jar and libraries: a mod's end-to-end test starts the real loader on exactly the jars its sources compile against |
 | `testRuntimeOnly` | the native libraries of this machine (the manifest's natives entries): a native jar carries no class, so it is never a compile class path |
-| `pvzRunClasspath` (not published) | the distribution's jars, and whatever the mod declares here (its API, `fabric-language-kotlin`, its own runtime libraries): what `runClient` launches *besides this mod itself* |
-| `include` | the mods this mod carries inside itself (see [Jar-in-jar](#jar-in-jar-include)) |
-| tasks | `pvzDist` (obtains the game distribution: downloads the release asset of the version or takes the local archive / unpacked distribution, and unpacks it into `build/pvz/dist/`), `runClient` (boots `net.fabricmc.loader.impl.launch.knot.KnotClient` with the distribution's jars, `pvzRunClasspath` and *this mod's own output* on the class path, development mode, `-Dpvz.gameDir=run` — see [The development run](#the-development-run)) |
+| the main runtime class path (`pvzLauncher`, which extends `implementation` + `runtimeOnly`) | the distribution's jars, and this mod's own runtime dependencies: what `runClient` launches, together with this mod's output |
+| `include` | the mods this mod carries inside itself (see [Jar-in-jar](#jar-in-jar-include)), also on the run class path |
+| tasks | `pvzDist` (obtains the game distribution: downloads the release asset of the version or takes the local archive / unpacked distribution, and unpacks it into `build/pvz/dist/`), `runClient` (boots `net.fabricmc.loader.impl.launch.knot.KnotClient` with the distribution's jars, this mod's runtime class path and its `include` jars on the class path, development mode, `-Dpvz.gameDir=run` — see [The development run](#the-development-run)) |
 | conventions | Java 25 toolchain and `--release 25`, UTF-8, jars with no bundled dependencies (a dependency is never shaded; a nested mod is `include`, and it stays a mod jar), `useJUnitPlatform()`, the test fork's `pvz.test.modJar` / `pvz.test.forkClasspath` system properties, a test fork class path without a Kotlin runtime of its own (the one a mod brings is what it runs on), headless SDL + first thread on macOS, the publication of the mod jar (`mavenLocal` coordinates, MIT) |
 
 The game side is stated in one place, `PvzToolchain` (the game's version, the release host and the
@@ -201,24 +223,26 @@ the mod compiles with, which API it links against, or which test framework it wa
   `testImplementation("org.junit.jupiter:junit-jupiter")` and
   `testRuntimeOnly("org.junit.platform:junit-platform-launcher")` — the platform launcher is what the
   toolchain's `useJUnitPlatform()` needs at runtime.
-- **`fabric-language-kotlin`**: on `testRuntimeOnly` and `pvzRunClasspath`, `isTransitive = false`
-  (the loader, Mixin, ASM and the Log4j stack of a launch class path are the distribution's jars;
-  pulling the module's POM in as well would put a second Fabric Loader of the same version on that
-  class path, which the loader refuses: "duplicate fabric loader classes found on classpath"). Its
-  nested `kotlin-stdlib` is the runtime a Kotlin mod resolves `kotlin.*` from.
+- **`fabric-language-kotlin`**: `implementation` (the run class path) and `testRuntimeOnly` (the
+  test fork). Nothing is switched off: the module's POM names the same Fabric Loader the game
+  distribution names, and both are resolved in the same graph, so the launch class path holds one
+  copy of it (the loader otherwise refuses: "duplicate fabric loader classes found on classpath").
+  Its nested `kotlin-stdlib` is the runtime a Kotlin mod resolves `kotlin.*` from; the stdlib jar a
+  build resolves for itself is kept off the launch class paths (see [Kotlin](#kotlin)).
 - **The API**: the aggregate jar of `cn.enaium.fabricpvz:fabric-api` — `compileOnly` and
-  `testCompileOnly` (a test source set does not inherit `compileOnly`) *with* its POM dependencies,
-  and `testImplementation` + `pvzRunClasspath` *without* them (`isTransitive = false`). It is one
-  coordinate and one jar, because the API ships the way Fabric API does: the aggregate carries its
-  five feature modules (`api-base`, `api-events`, `api-plant`, `api-resource`, `api-zombie`)
-  **inside itself** (see [Jar-in-jar](#jar-in-jar-include)), so a mod depends on one id and an
-  installation has one jar to drop into `mods/`. Compilation needs the modules themselves (javac and
-  kotlinc read jar files, not jars nested inside a jar, and the aggregate's POM names them), while at
-  runtime Fabric Loader reads the nested jars out of the aggregate — a class path that carried the
-  modules separately as well would resolve every module twice. A development run discovers mods on
-  the class path (`-Dfabric.development=true`, which `runClient` and the test fork both set), so the
-  API is loaded from that one jar, with the modules the loader finds inside it — the loader's own mod
-  list prints them nested under `fabric-api`:
+  `testCompileOnly` (a test source set does not inherit `compileOnly`; the aggregate's POM names the
+  modules, which is what javac and kotlinc read), plus `include` so this mod's jar carries the
+  aggregate and the run class path has it. It is one coordinate and one jar, because the API ships
+  the way Fabric API does: the aggregate carries its five feature modules (`api-base`, `api-events`,
+  `api-plant`, `api-resource`, `api-zombie`) **inside itself** (see
+  [Jar-in-jar](#jar-in-jar-include)), so a mod depends on one id and an installation has one jar to
+  drop into `mods/`. `include` embeds exactly the jar the declaration names (nothing it depends on),
+  which is why the aggregate travels alone and the modules keep travelling inside it: Fabric Loader
+  reads them out of the aggregate, and a class path that also carried them separately would resolve
+  every module twice. A development run discovers mods on the class path
+  (`-Dfabric.development=true`, which `runClient` and the test fork both set), so the API is loaded
+  from that one jar, with the modules the loader finds inside it — the loader's own mod list prints
+  them nested under `fabric-api`:
 
   ```
   Loading 25 mods:
@@ -256,12 +280,23 @@ itself; `add("include", …)` is the same thing and always available.
   at all — it is byte for byte the jar the project built before;
 - a name two included jars share is a build failure naming both files (a nested jar is addressed by
   its name inside the mod jar), and a mod jar that carries nested jars but has no `fabric.mod.json` to
-  list them in is a build failure too: the loader would never read them.
+  list them in is a build failure too: the loader would never read them;
+- an included dependency is the jar the declaration names: its own dependencies are not embedded with
+  it. `include("…:fabric-api:…")` carries the aggregate (whose modules are nested inside *it*), not
+  the aggregate plus the five modules as separate jars — which would make the loader resolve each
+  module twice — and `include(project(":core"))` carries that project's jar alone;
+- the included jars are also on the class path of `runClient`. A development run loads the mod under
+  development from its source set output, not from the built jar, so a nested jar would otherwise be
+  invisible to it; with `include` on the run class path, what `runClient` runs is what an
+  installation gets.
+
+The `include` configuration is also the plain thing its name says: everything declared there is
+nested and nothing else is. A build that wants several nested jars declares each of them.
 
 The project that uses this in this workspace is the API aggregate itself
 (`fabric-api/build.gradle.kts`). It is *not* a mod project of the toolchain (no game code, no `pvz`
 distribution, its own publication), so it applies the plugin with `apply false` —
-`id("cn.enaium.fabricpvz.loom") version "1.0.14" apply false` — which is what puts the plugin's
+`id("cn.enaium.fabricpvz.loom") version "1.0.15" apply false` — which is what puts the plugin's
 classes on its build script class path — and calls the mechanism directly, `JarInJar.include(...)`
 with the configuration `JarInJar.configuration(project)`. One mechanism, one implementation; the
 plugin is only the wiring a mod gets for free.
@@ -289,15 +324,16 @@ Three rules follow from Fabric Loader's own behaviour and the stdlib's:
   duplicate as a bug).
 - **The runtime stdlib is `fabric-language-kotlin`'s.** The copy a Kotlin mod resolves `kotlin.*`
   from at runtime is the one the real Fabric language module carries — its nested `kotlin-stdlib`,
-  which the loader adds to the class path of every mod. The mod declares the module on
-  `testRuntimeOnly` and `pvzRunClasspath` (both `isTransitive = false`) and in `fabric.mod.json`
+  which the loader adds to the class path of every mod. The mod declares the module with
+  `implementation` and `testRuntimeOnly` and in `fabric.mod.json`
   (`"depends": { "fabric-language-kotlin": ">=1.14.2" }`); an installation keeps the jar in `mods/`
   like any other mod. Two Kotlin mods in one installation therefore share one stdlib; if each
   bundled its own, the loader's `KnotClassLoader` would resolve every `kotlin.*` name from whichever
   mod jar it scans first and shadow the other copy, so two mods built against different stdlib
-  versions would silently share a mixture of both. The toolchain only keeps a stdlib a mod declares
-  for its test JVM off the **fork's** launch class path (the fork is the loader's, and the loader
-  provides the stdlib through the language module).
+  versions would silently share a mixture of both. The test fork's launch class path therefore
+  leaves every `kotlin-stdlib*.jar` Gradle resolved out (the fork is the loader's, and the loader
+  provides the stdlib through the language module); a `runClient` is a development run, where the
+  stdlib Gradle resolved and the module's nested one are the same version.
 
 ## Logging
 
@@ -384,13 +420,16 @@ version, build number, commit date - comes from the build) are on the portal, wi
 `latest`/`release` = 1.0.9.
 
 **1.0.14** narrows the toolchain to the game plus the libraries of the online version package's JSON,
-and leaves the Kotlin plugin and stdlib, JUnit, `fabric-language-kotlin` and the API to each mod. It
-is built and published to `mavenLocal`; the mods of this workspace state `version "1.0.14"` and list
-`gradlePluginPortal()` first with `mavenLocal()` after it until the portal serves this version.
-(1.0.12 and 1.0.13 were created on the portal by upload attempts that died while posting the
-artifacts - this network cannot reach the portal's artifact host - and the portal does not allow a
-version to be published twice, so the new contract ships as 1.0.14. 1.0.10 and 1.0.11 were never
-usable and carry no artifacts.)
+and leaves the Kotlin plugin and stdlib, JUnit, `fabric-language-kotlin` and the API to each mod.
+
+**1.0.15** gives a mod Fabric Loom's dependency model. The `pvzRunClasspath` configuration is gone:
+the run class path is the mod's own runtime class path (its `runtimeClasspath` configuration: output,
+`implementation`, `runtimeOnly`) resolved together with the game distribution's jars, and `include`
+is Fabric Loom's `include(...)` (embedded in the jar, and on the run class path). A mod declares
+`compileOnly` / `implementation` / `testImplementation` / `include` and never repeats a dependency on
+a launch-only configuration or switches its transitivity off: the distribution and the mod's own
+declarations are resolved in one graph, so a library both name (the Fabric Loader a language module
+depends on) arrives once. It is on the portal (`latest`/`release` = 1.0.15).
 
 ## License
 

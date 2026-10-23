@@ -26,9 +26,9 @@ import org.gradle.work.DisableCachingByDefault
  * provider with the real Fabric Loader/Mixin/ASM, the SLF4J/Log4j stack and LWJGL with the native
  * libraries of every platform a release supports) - and the archive's {@code mods/}, when it has one,
  * unpacked with it. The directory holding them is this task's output, so it is what
- * {@code compileOnly}, the test class path and {@code pvzRunClasspath} are made of (of its
- * {@code lib/} jars: a distribution ships no mods, see {@code PvzModPlugin#distJars}), and every task
- * that consumes them depends on this one.
+ * {@code compileOnly}, the test class path and the main runtime class path (which
+ * {@code runClient} launches) are made of (of its {@code lib/} jars: a distribution ships no mods,
+ * see {@code PvzModPlugin#distJars}), and every task that consumes them depends on this one.
  *
  * <p>Which of the three sources it materializes is decided by {@code PvzModPlugin} from the project's
  * {@code pvz} configuration:

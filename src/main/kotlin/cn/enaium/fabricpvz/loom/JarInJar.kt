@@ -15,6 +15,7 @@ import java.util.zip.ZipOutputStream
 import org.gradle.api.GradleException
 import org.gradle.api.Project
 import org.gradle.api.artifacts.Configuration
+import org.gradle.api.artifacts.ModuleDependency
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.bundling.Jar
@@ -117,9 +118,20 @@ class JarInJar private constructor() {
                 configuration.description = "The mods this mod carries inside its own jar (Fabric Loom's include(...)):" +
                     " nested into the mod jar under " + NESTED_DIRECTORY + "/ and listed in the packaged " +
                     METADATA + "'s jars array, from where Fabric Loader loads them with their own ids and" +
-                    " versions. Declare them as any dependency: include a project, or a module coordinate."
+                    " versions; also on the class path of runClient, where the mod under development is" +
+                    " a directory and not a jar. Declare them as any dependency: include a project, or a" +
+                    " module coordinate."
                 configuration.isCanBeConsumed = false
                 configuration.isCanBeResolved = true
+                // An included jar is the jar the declaration names: it is embedded as it is, so
+                // nothing it depends on is embedded with it (a mod jar's POM names what it compiles
+                // against, which is not what has to travel inside another mod). A build that wants
+                // more nested jars declares them one by one.
+                configuration.dependencies.configureEach { dependency ->
+                    if (dependency is ModuleDependency) {
+                        dependency.setTransitive(false)
+                    }
+                }
             }
         }
 
